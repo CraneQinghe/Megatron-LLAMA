@@ -8,7 +8,7 @@ REMOTE_PATH="/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA"
 REMOTE_STATUS_FILE="/tmp/remote_command_status_$$.txt"
 
 # 修改脚本中的变量值（如果需要）
-for DATASIZE in 4 8; do
+for DATASIZE in 4; do
     SEQL=$((DATASIZE * 1024))
     for DP_NUM in 1 2 4 8 16; do
         for TP_NUM in 1 2 4 8 16; do
