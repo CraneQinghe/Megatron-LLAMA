@@ -30,6 +30,7 @@ class HopsProfiler:
         start_evt = torch.cuda.Event(enable_timing=True)
         start_evt.record()
         self.events[name] = start_evt
+        print(f"[Debug HopsProfiler] start() recorded for {name} on rank 0", flush=True)
 
     def stop(self, name):
         if not self.enabled: return
@@ -53,13 +54,16 @@ class HopsProfiler:
         self.stats[name]["total_ms"] += elapsed
 
     def dump(self):
+        print(f"[Debug HopsProfiler] dump() called!", flush=True)
         try:
             if dist.is_initialized() and dist.get_rank() != 0:
+                print(f"[Debug HopsProfiler] Skipping dump because rank != 0", flush=True)
                 return
         except:
             pass
 
         if not self.stats:
+            print(f"[Debug HopsProfiler] dump() failed because self.stats is empty! self.events length: {len(self.events)}", flush=True)
             return
 
         res = {}

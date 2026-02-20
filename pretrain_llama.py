@@ -123,3 +123,6 @@ if __name__ == "__main__":
     )
     print(f'总时间：{time.time() - start}')
     print(f'Peak memory allocated: {torch.cuda.max_memory_allocated()/1024**3:.10f} GB')
+    
+    from megatron.profiler import hops_profiler
+    hops_profiler.dump()
