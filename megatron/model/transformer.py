@@ -17,6 +17,7 @@ from megatron.model.fused_softmax import FusedScaleMaskSoftmax
 from megatron.model.fused_bias_gelu import bias_gelu_impl
 from megatron.model.rotary_pos_embedding import apply_rotary_pos_emb
 from megatron.model.utils import attention_mask_func, openai_gelu, erf_gelu
+from megatron.profiler import hops_profiler, mark_region_start, mark_region_end
 
 try:
     from einops import rearrange
@@ -787,16 +788,19 @@ class ParallelTransformerLayer(MegatronModule):
                 encoder_output=None, enc_dec_attn_mask=None,
                 inference_params=None, rotary_pos_emb=None):
         # hidden_states: [s, b, h]
+        hops_profiler.start(f"Layer_{self.layer_number}_Total")
 
         # Layer norm at the beginning of the transformer layer.
         layernorm_output = self.input_layernorm(hidden_states)
         # Self attention.
+        layernorm_output = mark_region_start("Attention", layernorm_output)
         attention_output, attention_bias = \
             self.self_attention(
                 layernorm_output,
                 attention_mask,
                 inference_params=inference_params,
                 rotary_pos_emb=rotary_pos_emb)
+        attention_output = mark_region_end("Attention", attention_output)
 
         # Residual connection.
         if self.apply_residual_connection_post_layernorm:
@@ -859,7 +863,9 @@ class ParallelTransformerLayer(MegatronModule):
             layernorm_output = self.post_inter_attention_layernorm(layernorm_input)
 
         # MLP.
+        layernorm_output = mark_region_start("MLP", layernorm_output)
         mlp_output, mlp_bias = self.mlp(layernorm_output)
+        mlp_output = mark_region_end("MLP", mlp_output)
 
         # Second residual connection.
         if self.apply_residual_connection_post_layernorm:
@@ -895,6 +901,7 @@ class ParallelTransformerLayer(MegatronModule):
                                               training=self.training)
             output = residual + self.drop_path(out)
 
+        hops_profiler.stop(f"Layer_{self.layer_number}_Total")
         return output
 
 

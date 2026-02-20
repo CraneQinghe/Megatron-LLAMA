@@ -15,6 +15,7 @@ from .rotary_pos_embedding import apply_rotary_pos_emb, RotaryEmbedding
 from .transformer import ParallelTransformer
 from .utils import get_linear_layer
 from .utils import init_method_normal, scaled_init_method_normal
+from megatron.profiler import hops_profiler
 
 
 def parallel_lm_logits(input_, word_embeddings_weight, parallel_output,
@@ -216,6 +217,7 @@ class Embedding(MegatronModule):
         self.init_method(self.tokentype_embeddings.weight)
 
     def forward(self, input_ids, position_ids, tokentype_ids=None):
+        hops_profiler.start("Embedding")
         # Embeddings.
         words_embeddings = self.word_embeddings(input_ids)
         if self.add_position_embedding:
@@ -245,6 +247,7 @@ class Embedding(MegatronModule):
         else:
             embeddings = self.embedding_dropout(embeddings)
 
+        hops_profiler.stop("Embedding")
         return embeddings
 
     def state_dict_for_save_checkpoint(self, prefix='', keep_vars=False):

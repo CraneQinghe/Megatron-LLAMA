@@ -8,6 +8,7 @@ from megatron.core.parallel_state import (
     get_tensor_model_parallel_group,
 )
 from .utils import split_tensor_along_last_dim
+from megatron.profiler import hops_profiler
 
 
 def _reduce(input_):
@@ -121,6 +122,7 @@ def _reduce_scatter_along_first_dim(input_):
                          device=torch.cuda.current_device())
     torch.distributed._reduce_scatter_base(output, input_.contiguous(), 
                                            group=get_tensor_model_parallel_group())
+
     return output
 
 
@@ -137,7 +139,10 @@ class _CopyToModelParallelRegion(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        return _reduce(grad_output)
+        hops_profiler.start("TP_AllReduce_Backward")
+        res = _reduce(grad_output)
+        hops_profiler.stop("TP_AllReduce_Backward")
+        return res
 
 
 class _ReduceFromModelParallelRegion(torch.autograd.Function):
@@ -149,7 +154,10 @@ class _ReduceFromModelParallelRegion(torch.autograd.Function):
     
     @staticmethod
     def forward(ctx, input_):
-        return _reduce(input_)
+        hops_profiler.start("TP_AllReduce_Forward")
+        res = _reduce(input_)
+        hops_profiler.stop("TP_AllReduce_Forward")
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -214,18 +222,20 @@ class _GatherFromSequenceParallelRegion(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input_, tensor_parallel_output_grad=True):
         ctx.tensor_parallel_output_grad = tensor_parallel_output_grad
-        return _gather_along_first_dim(input_)
+        hops_profiler.start("SP_AllGather_Forward")
+        res = _gather_along_first_dim(input_)
+        hops_profiler.stop("SP_AllGather_Forward")
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):
         tensor_parallel_output_grad = ctx.tensor_parallel_output_grad
 
-        # If the computation graph after the gather operation is
-        # in the tensor parallel mode, output gradients need to reduce 
-        # scattered and whereas if the computation is duplicated, 
-        # output gradients need to be scattered.
         if tensor_parallel_output_grad:
-            return _reduce_scatter_along_first_dim(grad_output), None
+            hops_profiler.start("SP_ReduceScatter_Backward")
+            res = _reduce_scatter_along_first_dim(grad_output)
+            hops_profiler.stop("SP_ReduceScatter_Backward")
+            return res, None
         else:
             return _split_along_first_dim(grad_output), None
 
@@ -239,11 +249,17 @@ class _ReduceScatterToSequenceParallelRegion(torch.autograd.Function):
     
     @staticmethod
     def forward(ctx, input_):
-        return _reduce_scatter_along_first_dim(input_)
+        hops_profiler.start("SP_ReduceScatter_Forward")
+        res = _reduce_scatter_along_first_dim(input_)
+        hops_profiler.stop("SP_ReduceScatter_Forward")
+        return res
 
     @staticmethod
     def backward(ctx, grad_output):
-        return _gather_along_first_dim(grad_output)
+        hops_profiler.start("SP_AllGather_Backward")
+        res = _gather_along_first_dim(grad_output)
+        hops_profiler.stop("SP_AllGather_Backward")
+        return res
 
 
 # -----------------

@@ -54,7 +54,7 @@ options=" \
     --sequence-parallel \
         --tensor-model-parallel-size ${TP_SIZE} \
         --pipeline-model-parallel-size ${PP_SIZE} \
-    --num-layers 32 \
+    --num-layers 1 \
         --hidden-size 4096 \
         --num-attention-heads 32 \
         --seq-length ${SEQ_LENGTH} \
