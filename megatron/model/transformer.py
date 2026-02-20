@@ -788,7 +788,10 @@ class ParallelTransformerLayer(MegatronModule):
                 encoder_output=None, enc_dec_attn_mask=None,
                 inference_params=None, rotary_pos_emb=None):
         # hidden_states: [s, b, h]
-        hops_profiler.start(f"Layer_{self.layer_number}_Total")
+        if self.training:
+            hidden_states = mark_region_start(f"Layer_{self.layer_number}_Total", hidden_states)
+        else:
+            hops_profiler.start(f"Layer_{self.layer_number}_Total_Forward")
 
         # Layer norm at the beginning of the transformer layer.
         layernorm_output = self.input_layernorm(hidden_states)
@@ -901,7 +904,11 @@ class ParallelTransformerLayer(MegatronModule):
                                               training=self.training)
             output = residual + self.drop_path(out)
 
-        hops_profiler.stop(f"Layer_{self.layer_number}_Total")
+        if self.training:
+            output = mark_region_end(f"Layer_{self.layer_number}_Total", output)
+        else:
+            hops_profiler.stop(f"Layer_{self.layer_number}_Total_Forward")
+
         return output
 
 
