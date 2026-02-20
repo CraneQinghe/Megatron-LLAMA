@@ -9,7 +9,7 @@ NODE_RANK=$2
 NNODES=1
 TP_SIZE=2
 
-PP_SIZE=2
+PP_SIZE=1
 SEQ_LENGTH=4096
 WORLD_SIZE=$((NNODES * 8))
 DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
@@ -17,7 +17,7 @@ DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
 
 DTIME=`date +%m-%d`
 MTIME=`date +%m-%d-%H-%M`
-export LOG_PATH=/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/logs/seq${SEQ_LENGTH}/$DTIME
+export LOG_PATH=/data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/examples/LLaMA/logs/seq${SEQ_LENGTH}/$DTIME
 mkdir -p ${LOG_PATH}
 
 # 设置日志文件路径，包含TP_SIZE, PP_SIZE, DP_SIZE
@@ -106,5 +106,4 @@ options=" \
     --use-flash-attn"
 
 # 执行训练命令
-torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=8 --master_port=29600 /data/haiqwa/zevin_nfs/code/Megatron-LLaMA/pretrain_llama.py ${options}
-
+torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=8 --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
