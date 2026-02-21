@@ -100,6 +100,7 @@ class HopsProfiler:
                     self.stats[n] = {"count": 0, "total_ms": 0.0}
                 self.stats[n]["count"] += 1
                 self.stats[n]["total_ms"] += elapsed
+            self.async_events_to_measure.clear() # Prevent dual counting if dump() called multiple times
 
         if not self.stats:
             print(f"[Debug HopsProfiler] dump() failed because self.stats is empty!", flush=True)
