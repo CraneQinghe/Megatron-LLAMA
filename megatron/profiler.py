@@ -34,6 +34,7 @@ class HopsProfiler:
         layer_params = 0
         other_params = 0
         total_params = 0
+        param_bytes = 2 # default fp16/bf16 fallback
 
         for m in model:
             for name, p in m.named_parameters():
@@ -41,6 +42,7 @@ class HopsProfiler:
                     continue
                 num_params = p.numel()
                 total_params += num_params
+                param_bytes = p.element_size() # Extract real byte size of the parameter
                 
                 # Check naming convention inside Megatron for word embeddings and the output layer
                 if 'word_embeddings' in name or 'position_embeddings' in name or 'final_layernorm' in name or "lm_head" in name in name:
@@ -54,8 +56,12 @@ class HopsProfiler:
         bucket_size_mb = args.reduce_bucket_size / (1024**2) if hasattr(args, 'reduce_bucket_size') and args.reduce_bucket_size else 0
 
         self.stats["Model_Grad_Params_Total"] = {"count": 1, "total_ms": total_params}
+        self.stats["Model_Grad_Params_Total_MB"] = {"count": 1, "total_ms": total_params * param_bytes / (1024**2)}
         self.stats["Model_Grad_Params_Embedding_And_Head"] = {"count": 1, "total_ms": vocab_emb_params}
+        self.stats["Model_Grad_Params_Embedding_And_Head_MB"] = {"count": 1, "total_ms": vocab_emb_params * param_bytes / (1024**2)}
         self.stats["Model_Grad_Params_Single_Layer"] = {"count": 1, "total_ms": layer_params}
+        self.stats["Model_Grad_Params_Single_Layer_MB"] = {"count": 1, "total_ms": layer_params * param_bytes / (1024**2)}
+        self.stats["Param_Size_Bytes"] = {"count": 1, "total_ms": param_bytes}
         self.stats["Reduce_Bucket_Size_MB"] = {"count": 1, "total_ms": bucket_size_mb}
 
     def start(self, name):
@@ -143,8 +149,14 @@ class HopsProfiler:
             return
 
         res = {}
+        static_keys = [
+            "Model_Grad_Params_Total", "Model_Grad_Params_Total_MB",
+            "Model_Grad_Params_Embedding_And_Head", "Model_Grad_Params_Embedding_And_Head_MB", 
+            "Model_Grad_Params_Single_Layer", "Model_Grad_Params_Single_Layer_MB",
+            "Param_Size_Bytes", "Reduce_Bucket_Size_MB"
+        ]
         for k, v in self.stats.items():
-            if k in ["Model_Grad_Params_Total", "Model_Grad_Params_Embedding_And_Head", "Model_Grad_Params_Single_Layer", "Reduce_Bucket_Size_MB"]:
+            if k in static_keys:
                 res[k] = v["total_ms"]
             else:
                 avg_time = v["total_ms"] / v["count"] if v["count"] else 0
