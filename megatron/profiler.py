@@ -32,7 +32,7 @@ class HopsProfiler:
             
         if name == "Layer_1_Total_Forward" or name == "Layer_1_Total":
             self.layer_fwds_started += 1
-            if self.layer_fwds_started > 400: # 50 iters * 8 microbatches
+            if self.layer_fwds_started > 200: # 50 iters * 4 microbatches
                 self.detailed_profiling_enabled = False
 
         is_layer_total = "Layer_1_Total" in name
