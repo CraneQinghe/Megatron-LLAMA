@@ -454,7 +454,12 @@ def train_step(forward_step_func, data_iterator,
 
     # Update parameters.
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
+    
+    from megatron.profiler import hops_profiler
+    hops_profiler.start("Optimizer_Step")
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step(args, timers)
+    hops_profiler.stop("Optimizer_Step")
+    
     timers('optimizer').stop()
 
     # Gather params.
@@ -692,6 +697,9 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     # Write args to tensorboard
     write_args_to_tensorboard()
+
+    from megatron.profiler import hops_profiler
+    hops_profiler.record_model_info(model, args)
 
     # Turn on training mode which enables dropout.
     for model_module in model:

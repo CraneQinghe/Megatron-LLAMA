@@ -22,6 +22,19 @@ class HopsProfiler:
         self.async_events_to_measure = []
         atexit.register(self.dump)
 
+    def record_model_info(self, model, args):
+        try:
+            if dist.is_initialized() and dist.get_rank() != 0:
+                return
+        except:
+            pass
+        
+        total_params = sum(p.numel() for m in model for p in m.parameters() if p.requires_grad)
+        bucket_size_mb = args.reduce_bucket_size / (1024**2) if hasattr(args, 'reduce_bucket_size') and args.reduce_bucket_size else 0
+
+        self.stats["Model_Grad_Params_Count"] = {"count": 1, "total_ms": total_params}
+        self.stats["Reduce_Bucket_Size_MB"] = {"count": 1, "total_ms": bucket_size_mb}
+
     def start(self, name):
         if not self.enabled: return
         try:
