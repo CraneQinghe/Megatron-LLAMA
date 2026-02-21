@@ -793,17 +793,16 @@ class ParallelTransformerLayer(MegatronModule):
         else:
             hops_profiler.start(f"Layer_{self.layer_number}_Total_Forward")
 
+        hidden_states = mark_region_start("Attention", hidden_states)
         # Layer norm at the beginning of the transformer layer.
         layernorm_output = self.input_layernorm(hidden_states)
         # Self attention.
-        layernorm_output = mark_region_start("Attention", layernorm_output)
         attention_output, attention_bias = \
             self.self_attention(
                 layernorm_output,
                 attention_mask,
                 inference_params=inference_params,
                 rotary_pos_emb=rotary_pos_emb)
-        attention_output = mark_region_end("Attention", attention_output)
 
         # Residual connection.
         if self.apply_residual_connection_post_layernorm:
@@ -838,6 +837,9 @@ class ParallelTransformerLayer(MegatronModule):
                                               training=self.training)
             layernorm_input = residual + self.drop_path(out)
 
+        layernorm_input = mark_region_end("Attention", layernorm_input)
+        layernorm_input = mark_region_start("MLP", layernorm_input)
+
         # Layer norm post the self attention.
         layernorm_output = self.post_attention_layernorm(layernorm_input)
 
@@ -866,9 +868,7 @@ class ParallelTransformerLayer(MegatronModule):
             layernorm_output = self.post_inter_attention_layernorm(layernorm_input)
 
         # MLP.
-        layernorm_output = mark_region_start("MLP", layernorm_output)
         mlp_output, mlp_bias = self.mlp(layernorm_output)
-        mlp_output = mark_region_end("MLP", mlp_output)
 
         # Second residual connection.
         if self.apply_residual_connection_post_layernorm:
@@ -903,6 +903,8 @@ class ParallelTransformerLayer(MegatronModule):
                                               p=self.hidden_dropout,
                                               training=self.training)
             output = residual + self.drop_path(out)
+
+        output = mark_region_end("MLP", output)
 
         if self.training:
             output = mark_region_end(f"Layer_{self.layer_number}_Total", output)
