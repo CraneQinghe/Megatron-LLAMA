@@ -274,6 +274,8 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                 all_gather_buffer,
                 input,
                 group=get_tensor_model_parallel_group(), async_op=True)
+            if hops_profiler.detailed_profiling_enabled:
+                handle.wait()
             hops_profiler.stop("SP_AllGather_Backward")
             rank = torch.distributed.get_rank()
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
@@ -313,11 +315,12 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                                          device=torch.cuda.current_device(),
                                          requires_grad=False)
             size_MB = grad_input.numel() * grad_input.element_size() / (1024**2)  # 转换为 MB
-            # reduce_scatter
             hops_profiler.start("SP_ReduceScatter_Backward")
             handle = torch.distributed._reduce_scatter_base(sub_grad_input, grad_input,
                                                             group=get_tensor_model_parallel_group(),
                                                             async_op=True)
+            if hops_profiler.detailed_profiling_enabled:
+                handle.wait()
             hops_profiler.stop("SP_ReduceScatter_Backward")
             rank = torch.distributed.get_rank()
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
