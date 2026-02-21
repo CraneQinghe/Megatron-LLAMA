@@ -7,11 +7,11 @@ DATASET="/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/dataset/datas
 MASTER_ADDR=172.20.$1.2
 NODE_RANK=$2
 NNODES=1
-TP_SIZE=2
+TP_SIZE=4
 
 PP_SIZE=1
 SEQ_LENGTH=4096
-WORLD_SIZE=2
+WORLD_SIZE=4
 DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
 # DP_SIZE=$3
 
@@ -54,7 +54,7 @@ options=" \
     --sequence-parallel \
         --tensor-model-parallel-size ${TP_SIZE} \
         --pipeline-model-parallel-size ${PP_SIZE} \
-    --num-layers 1 \
+    --num-layers 32 \
         --hidden-size 4096 \
         --num-attention-heads 32 \
         --seq-length ${SEQ_LENGTH} \
