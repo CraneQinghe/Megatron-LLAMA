@@ -20,6 +20,7 @@ class HopsProfiler:
         self.layer_fwds_started = 0
         self.detailed_profiling_enabled = True
         self.async_events_to_measure = []
+        self.heartbeat_layer_name = None
         atexit.register(self.dump)
 
     def record_model_info(self, model, args):
@@ -72,12 +73,16 @@ class HopsProfiler:
         except:
             pass
             
-        if name == "Layer_1_Total_Forward" or name == "Layer_1_Total":
-            self.layer_fwds_started += 1
-            if self.layer_fwds_started > 200: # 50 iters * 4 microbatches
-                self.detailed_profiling_enabled = False
+        is_layer_total = "Layer_" in name and "_Total" in name
 
-        is_layer_total = "Layer_1_Total" in name
+        if is_layer_total and "Forward" in name:
+            if self.heartbeat_layer_name is None:
+                self.heartbeat_layer_name = name
+            
+            if name == self.heartbeat_layer_name:
+                self.layer_fwds_started += 1
+                if self.layer_fwds_started > 200: # 50 iters * 4 microbatches
+                    self.detailed_profiling_enabled = False
 
         if not self.detailed_profiling_enabled and not is_layer_total:
             return
@@ -98,7 +103,7 @@ class HopsProfiler:
         except:
             pass
 
-        is_layer_total = "Layer_1_Total" in name
+        is_layer_total = "Layer_" in name and "_Total" in name
         real_name = name
         if is_layer_total:
             if name + "_Detailed" in self.events:
