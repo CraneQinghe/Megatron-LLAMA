@@ -29,10 +29,33 @@ class HopsProfiler:
         except:
             pass
         
-        total_params = sum(p.numel() for m in model for p in m.parameters() if p.requires_grad)
+        # We need to explicitly isolate the parameters to extrapolate full model DP cost
+        vocab_emb_params = 0
+        layer_params = 0
+        other_params = 0
+        total_params = 0
+
+        for m in model:
+            for name, p in m.named_parameters():
+                if not p.requires_grad:
+                    continue
+                num_params = p.numel()
+                total_params += num_params
+                
+                # Check naming convention inside Megatron for word embeddings and the output layer
+                if 'word_embeddings' in name or 'position_embeddings' in name or 'final_layernorm' in name or "lm_head" in name in name:
+                    vocab_emb_params += num_params
+                elif 'layers.0.' in name:
+                    layer_params += num_params
+                else: 
+                    # other residual logic parameters outside transformer loop
+                    other_params += num_params
+                
         bucket_size_mb = args.reduce_bucket_size / (1024**2) if hasattr(args, 'reduce_bucket_size') and args.reduce_bucket_size else 0
 
-        self.stats["Model_Grad_Params_Count"] = {"count": 1, "total_ms": total_params}
+        self.stats["Model_Grad_Params_Total"] = {"count": 1, "total_ms": total_params}
+        self.stats["Model_Grad_Params_Embedding_And_Head"] = {"count": 1, "total_ms": vocab_emb_params}
+        self.stats["Model_Grad_Params_Single_Layer"] = {"count": 1, "total_ms": layer_params}
         self.stats["Reduce_Bucket_Size_MB"] = {"count": 1, "total_ms": bucket_size_mb}
 
     def start(self, name):
@@ -121,7 +144,7 @@ class HopsProfiler:
 
         res = {}
         for k, v in self.stats.items():
-            if k in ["Model_Grad_Params_Count", "Reduce_Bucket_Size_MB"]:
+            if k in ["Model_Grad_Params_Total", "Model_Grad_Params_Embedding_And_Head", "Model_Grad_Params_Single_Layer", "Reduce_Bucket_Size_MB"]:
                 res[k] = v["total_ms"]
             else:
                 avg_time = v["total_ms"] / v["count"] if v["count"] else 0
