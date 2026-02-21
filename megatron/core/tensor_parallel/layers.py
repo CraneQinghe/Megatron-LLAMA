@@ -274,7 +274,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                 all_gather_buffer,
                 input,
                 group=get_tensor_model_parallel_group(), async_op=True)
-            hops_profiler.stop("SP_AllGather_Backward")
+            # We don't stop the profiler here! We stop it after handle.wait() to measure the real stall time.
             rank = torch.distributed.get_rank()
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # gather is scheduled before the input gradient computation
@@ -285,6 +285,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
 
         if ctx.sequence_parallel:
             handle.wait()
+            hops_profiler.stop("SP_AllGather_Backward")
 
         # Doing gather + slicing during the NeMo forward pass can make this tensor 
         # not be contiguous. PyTorch only checks if the tensor is contiguous, and only 
@@ -318,7 +319,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
             handle = torch.distributed._reduce_scatter_base(sub_grad_input, grad_input,
                                                             group=get_tensor_model_parallel_group(),
                                                             async_op=True)
-            hops_profiler.stop("SP_ReduceScatter_Backward")
+            # Unstopped here as well, wait until handle.wait()
             rank = torch.distributed.get_rank()
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # reduce scatter is scheduled before the weight gradient computation
@@ -342,6 +343,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
 
         if ctx.sequence_parallel:
             handle.wait()
+            hops_profiler.stop("SP_ReduceScatter_Backward")
             return sub_grad_input, grad_weight, grad_bias, None, None, None
 
         if ctx.async_grad_allreduce:
