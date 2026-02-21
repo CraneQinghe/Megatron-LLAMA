@@ -222,9 +222,7 @@ class _GatherFromSequenceParallelRegion(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input_, tensor_parallel_output_grad=True):
         ctx.tensor_parallel_output_grad = tensor_parallel_output_grad
-        hops_profiler.start("SP_AllGather_Fallback_Forward")
         res = _gather_along_first_dim(input_)
-        hops_profiler.stop("SP_AllGather_Fallback_Forward")
         return res
 
     @staticmethod
@@ -232,9 +230,7 @@ class _GatherFromSequenceParallelRegion(torch.autograd.Function):
         tensor_parallel_output_grad = ctx.tensor_parallel_output_grad
 
         if tensor_parallel_output_grad:
-            hops_profiler.start("SP_ReduceScatter_Fallback_Backward")
             res = _reduce_scatter_along_first_dim(grad_output)
-            hops_profiler.stop("SP_ReduceScatter_Fallback_Backward")
             return res, None
         else:
             return _split_along_first_dim(grad_output), None
@@ -249,16 +245,12 @@ class _ReduceScatterToSequenceParallelRegion(torch.autograd.Function):
     
     @staticmethod
     def forward(ctx, input_):
-        hops_profiler.start("SP_ReduceScatter_Fallback_Forward")
         res = _reduce_scatter_along_first_dim(input_)
-        hops_profiler.stop("SP_ReduceScatter_Fallback_Forward")
         return res
 
     @staticmethod
     def backward(ctx, grad_output):
-        hops_profiler.start("SP_AllGather_Fallback_Backward")
         res = _gather_along_first_dim(grad_output)
-        hops_profiler.stop("SP_AllGather_Fallback_Backward")
         return res
 
 
