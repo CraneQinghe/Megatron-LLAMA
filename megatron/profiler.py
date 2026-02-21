@@ -17,6 +17,9 @@ class HopsProfiler:
         self.events = {}
         self.stats = {}
         self.enabled = True
+        self.layer_fwds_started = 0
+        self.detailed_profiling_enabled = True
+        self.async_events_to_measure = []
         atexit.register(self.dump)
 
     def start(self, name):
@@ -26,11 +29,24 @@ class HopsProfiler:
                 return
         except:
             pass
-        
+            
+        if name == "Layer_1_Total_Forward" or name == "Layer_1_Total":
+            self.layer_fwds_started += 1
+            if self.layer_fwds_started > 400: # 50 iters * 8 microbatches
+                self.detailed_profiling_enabled = False
+
+        is_layer_total = "Layer_1_Total" in name
+
+        if not self.detailed_profiling_enabled and not is_layer_total:
+            return
+
+        real_name = name
+        if is_layer_total:
+            real_name = name + ("_Detailed" if self.detailed_profiling_enabled else "_NoSync")
+
         start_evt = torch.cuda.Event(enable_timing=True)
         start_evt.record()
-        self.events[name] = start_evt
-        print(f"[Debug HopsProfiler] start() recorded for {name} on rank 0", flush=True)
+        self.events[real_name] = start_evt
 
     def stop(self, name):
         if not self.enabled: return
@@ -40,18 +56,32 @@ class HopsProfiler:
         except:
             pass
 
-        if name not in self.events:
+        is_layer_total = "Layer_1_Total" in name
+        real_name = name
+        if is_layer_total:
+            if name + "_Detailed" in self.events:
+                real_name = name + "_Detailed"
+            elif name + "_NoSync" in self.events:
+                real_name = name + "_NoSync"
+
+        if real_name not in self.events:
             return
         
+        start_evt = self.events.pop(real_name)
         end_evt = torch.cuda.Event(enable_timing=True)
         end_evt.record()
-        torch.cuda.synchronize()
-        elapsed = self.events.pop(name).elapsed_time(end_evt)
 
-        if name not in self.stats:
-            self.stats[name] = {"count": 0, "total_ms": 0.0}
-        self.stats[name]["count"] += 1
-        self.stats[name]["total_ms"] += elapsed
+        if self.detailed_profiling_enabled:
+            # Force serialization and calculate locally to simulate the sync overhead
+            torch.cuda.synchronize()
+            elapsed = start_evt.elapsed_time(end_evt)
+            if real_name not in self.stats:
+                self.stats[real_name] = {"count": 0, "total_ms": 0.0}
+            self.stats[real_name]["count"] += 1
+            self.stats[real_name]["total_ms"] += elapsed
+        else:
+            # Fully Non-blocking: just record events to not affect system dynamics
+            self.async_events_to_measure.append((real_name, start_evt, end_evt))
 
     def dump(self):
         print(f"[Debug HopsProfiler] dump() called!", flush=True)
@@ -62,8 +92,17 @@ class HopsProfiler:
         except:
             pass
 
+        if self.async_events_to_measure:
+            torch.cuda.synchronize()
+            for n, s_evt, e_evt in self.async_events_to_measure:
+                elapsed = s_evt.elapsed_time(e_evt)
+                if n not in self.stats:
+                    self.stats[n] = {"count": 0, "total_ms": 0.0}
+                self.stats[n]["count"] += 1
+                self.stats[n]["total_ms"] += elapsed
+
         if not self.stats:
-            print(f"[Debug HopsProfiler] dump() failed because self.stats is empty! self.events length: {len(self.events)}", flush=True)
+            print(f"[Debug HopsProfiler] dump() failed because self.stats is empty!", flush=True)
             return
 
         res = {}
