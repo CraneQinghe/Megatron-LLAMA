@@ -245,6 +245,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                 group=get_tensor_model_parallel_group())
             hops_profiler.stop("SP_AllGather_Forward")
             rank = torch.distributed.get_rank()
+            total_input = all_gather_buffer
         else:
             total_input = input
 
