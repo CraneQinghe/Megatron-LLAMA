@@ -121,12 +121,15 @@ class HopsProfiler:
 
         res = {}
         for k, v in self.stats.items():
-            avg_time = v["total_ms"] / v["count"] if v["count"] else 0
-            res[k] = {
-                "count": v["count"],
-                "total_time_ms": v["total_ms"],
-                "avg_time_ms": avg_time
-            }
+            if k in ["Model_Grad_Params_Count", "Reduce_Bucket_Size_MB"]:
+                res[k] = v["total_ms"]
+            else:
+                avg_time = v["total_ms"] / v["count"] if v["count"] else 0
+                res[k] = {
+                    "count": v["count"],
+                    "total_time_ms": v["total_ms"],
+                    "avg_time_ms": avg_time
+                }
             
         out_file = os.path.join(os.getcwd(), "hops_profiling_results.json")
         try:
