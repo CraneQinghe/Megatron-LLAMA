@@ -12,7 +12,6 @@ import torch
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch.nn.parameter import Parameter
-from megatron.comm_counter import Comm_counter
 from torch.cuda.amp import custom_fwd, custom_bwd
 from megatron.info_record import Logger 
 from megatron.core.parallel_state import (
@@ -29,6 +28,8 @@ from .mappings import (
     scatter_to_tensor_model_parallel_region,
     reduce_scatter_to_sequence_parallel_region,
 )
+
+from megatron.profiler import hops_profiler
 
 from .random import get_cuda_rng_tracker
 from .utils import (
@@ -237,17 +238,13 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
 
             size_MB = all_gather_buffer.numel() * all_gather_buffer.element_size() / (1024**2)  # 转换为 MB
             
+            hops_profiler.start("SP_AllGather_Forward")
             torch.distributed._all_gather_base(
                 all_gather_buffer,
                 input,
                 group=get_tensor_model_parallel_group())
+            hops_profiler.stop("SP_AllGather_Forward")
             rank = torch.distributed.get_rank()
-            if rank==0:
-                comm_counter1=Comm_counter()
-                comm_counter1.add_sequence_parallel_async_forward_all_gather_total_size_MB(size_MB)
-                comm_counter1.set_sequence_parallel_async_forward_all_gather_buffer_shape(all_gather_buffer.shape)
-
-            total_input = all_gather_buffer
         else:
             total_input = input
 
@@ -270,17 +267,14 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
             all_gather_buffer = \
                 get_global_memory_buffer().get_tensor(dim_size, input.dtype, "mpu")
             size_MB = all_gather_buffer.numel() * all_gather_buffer.element_size() / (1024**2)  # 转换为 MB
+            
+            hops_profiler.start("SP_AllGather_Backward")
             handle = torch.distributed._all_gather_base(
                 all_gather_buffer,
                 input,
                 group=get_tensor_model_parallel_group(), async_op=True)
+            hops_profiler.stop("SP_AllGather_Backward")
             rank = torch.distributed.get_rank()
-            if rank==0:
-                comm_counter1=Comm_counter()
-                comm_counter1.set_single_all_gather_buffer_size(size_MB)
-                comm_counter1.add_sequence_parallel_async_backward_all_gather_total_size_MB(size_MB)
-                comm_counter1.set_sequence_parallel_async_backward_all_gather_buffer_shape(all_gather_buffer.shape)
-
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # gather is scheduled before the input gradient computation
             total_input = all_gather_buffer
@@ -308,10 +302,6 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
             handle = torch.distributed.all_reduce(
                     grad_input, group=get_tensor_model_parallel_group(), async_op=True)
             rank = torch.distributed.get_rank()
-            if rank==0:
-                comm_counter1=Comm_counter()
-                comm_counter1.add_async_grad_allreduce_backward_grad_input_total_size_MB(size_MB)
-                comm_counter1.set_async_grad_allreduce_backward_grad_input_shape(grad_input.shape)
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # all-reduce is scheduled before the weight gradient computation
 
@@ -323,14 +313,12 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                                          requires_grad=False)
             size_MB = grad_input.numel() * grad_input.element_size() / (1024**2)  # 转换为 MB
             # reduce_scatter
+            hops_profiler.start("SP_ReduceScatter_Backward")
             handle = torch.distributed._reduce_scatter_base(sub_grad_input, grad_input,
                                                             group=get_tensor_model_parallel_group(),
                                                             async_op=True)
+            hops_profiler.stop("SP_ReduceScatter_Backward")
             rank = torch.distributed.get_rank()
-            if rank==0:
-                comm_counter1=Comm_counter()
-                comm_counter1.add_sequence_parallel_async_backward_reduce_scatter_total_size_MB(size_MB)
-                comm_counter1.set_sequence_parallel_async_backward_reduce_scatter_grad_input_shape(grad_input.shape)
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # reduce scatter is scheduled before the weight gradient computation
 
