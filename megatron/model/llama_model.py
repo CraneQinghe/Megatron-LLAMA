@@ -78,6 +78,28 @@ class LLaMAModel(MegatronModule):
         self.causal_lm = args.causal_lm
         if self.causal_lm:
             self.lm_head = torch.nn.Linear(args.hidden_size, args.padded_vocab_size, bias=False)
+            
+            # Register hooks to profile Logits compute
+            def _fwd_pre(module, input):
+                from megatron.profiler import hops_profiler
+                hops_profiler.start("Logits_Forward")
+            
+            def _fwd_post(module, input, output):
+                from megatron.profiler import hops_profiler
+                hops_profiler.stop("Logits_Forward")
+                
+            def _bwd_pre(module, grad_output):
+                from megatron.profiler import hops_profiler
+                hops_profiler.start("Logits_Backward")
+                
+            def _bwd_post(module, grad_input, grad_output):
+                from megatron.profiler import hops_profiler
+                hops_profiler.stop("Logits_Backward")
+
+            self.lm_head.register_forward_pre_hook(_fwd_pre)
+            self.lm_head.register_forward_hook(_fwd_post)
+            self.lm_head.register_full_backward_pre_hook(_bwd_pre)
+            self.lm_head.register_full_backward_hook(_bwd_post)
 
     def set_input_tensor(self, input_tensor):
         """See megatron.model.transformer.set_input_tensor()"""
