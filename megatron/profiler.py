@@ -246,8 +246,18 @@ class HopsProfiler:
                     "avg_time_ms": avg_time
                 }
             
-        out_file = os.path.join(os.getcwd(), "hops_profiling_results.json")
-        out_shapes_file = os.path.join(os.getcwd(), "hops_profiling_shapes.json")
+        # 尝试动态获取全局 TP_SIZE 环境变量或者参数
+        tp_suffix = ""
+        try:
+            from megatron import get_args
+            args = get_args()
+            if hasattr(args, 'tensor_model_parallel_size'):
+                tp_suffix = f"_tp{args.tensor_model_parallel_size}"
+        except Exception:
+            pass
+            
+        out_file = os.path.join(os.getcwd(), f"hops_profiling_results{tp_suffix}.json")
+        out_shapes_file = os.path.join(os.getcwd(), f"hops_profiling_shapes{tp_suffix}.json")
         try:
             with open(out_file, "w") as f:
                 json.dump(res, f, indent=4)
