@@ -69,12 +69,13 @@ class HopsProfiler:
         self.recorded_shape_keys = set()
         # --- Dynamic Sequential Execution Tracer Hook Injection ---
         self.Layer_Sequential_Shapes = []
-        self._traced_one_layer = False
+        self._traced_module_names = set()
         self._current_trace_step = 0
         
         def create_sequential_hook(module_name):
             def hook(module, inputs, output):
-                if self._traced_one_layer: return
+                if module_name in self._traced_module_names: 
+                    return
                 
                 try:
                     # Parse inputs (sometimes can be a tuple, so we get the first tensor)
@@ -103,6 +104,7 @@ class HopsProfiler:
                         "Weight_Shape": w_shape
                     }
                     self.Layer_Sequential_Shapes.append(step_info)
+                    self._traced_module_names.add(module_name)
                     
                     self._current_trace_step += 1
                     
@@ -112,12 +114,6 @@ class HopsProfiler:
                         "avg_time_ms": 0,
                         "Sequential_Flow": self.Layer_Sequential_Shapes
                     }
-                    
-                    # If we reached the end of the first layer's Forward Pass (usually the final DropPath/Add)
-                    # We latch it so it doesn't trace microbatches or layer 2, 3, 4 over and over.
-                    # We heuristically stop after ~20-30 sequential primitive hooks fire per layer.
-                    if self._current_trace_step > 40:
-                        self._traced_one_layer = True
                         
                 except Exception as e:
                     pass
