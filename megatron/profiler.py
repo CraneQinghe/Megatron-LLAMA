@@ -196,13 +196,10 @@ class HopsProfiler:
                 self.async_events_to_measure.append((real_name, start_evt, end_evt))
 
     def dump(self):
+        if hasattr(self, '_has_dumped') and self._has_dumped:
+            return
+        self._has_dumped = True
         print(f"[Debug HopsProfiler] dump() called!", flush=True)
-        # try:
-        #     if dist.is_initialized() and dist.get_rank() != 0:
-        #         print(f"[Debug HopsProfiler] Skipping dump because rank != 0", flush=True)
-        #         return
-        # except:
-        #     pass
 
         if self.async_events_to_measure:
             torch.cuda.synchronize()
