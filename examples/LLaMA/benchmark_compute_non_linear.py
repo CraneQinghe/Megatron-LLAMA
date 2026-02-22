@@ -1,6 +1,8 @@
 import torch
 import time
 import argparse
+import json
+import os
 
 def benchmark_linear(input_shape, weight_shape, max_iters=200, warmup=50):
     """
@@ -147,6 +149,8 @@ def profile_llama_layer(S=4096, B=1, H=4096, FFN=11008, tp_sizes=[1, 2, 4, 8]):
     print(f"{'TP':<4} | {'Module':<12} | {'Time(ms)':<10} | {'TFLOPs/s':<10} | {'Input [M, K]':<18} x {'Weight [N, K]':<18}")
     print("-" * 110)
     
+    results = {}
+    
     for tp in tp_sizes:
         M = S * B
         
@@ -197,6 +201,26 @@ def profile_llama_layer(S=4096, B=1, H=4096, FFN=11008, tp_sizes=[1, 2, 4, 8]):
         print(f"{tp:<4} | {'[Sum Parts]':<12} | {sum_of_parts:<10.3f} | {' '*10} | (Math Sum of 7 Operators)")
         print(f"{tp:<4} | {'[LAYER REAL]':<12} | {simulated_layer_time:<10.3f} | {' '*10} | (Sequential Pipeline Simulation)")
         print("-" * 110)
+        
+        results[str(tp)] = {
+            "RMSNorm_Input": norm_time,
+            "Attn_QKV": qkv_time,
+            "Attn_O": o_time,
+            "RMSNorm_PostAttn": norm_time,
+            "MLP_GateUp": gate_up_time,
+            "SiLU": silu_time,
+            "MLP_Down": down_time,
+            "Sum_Parts": sum_of_parts,
+            "LAYER_REAL": simulated_layer_time
+        }
+        
+    out_file = os.path.join(os.getcwd(), "benchmark_layer_times.json")
+    try:
+        with open(out_file, "w") as f:
+            json.dump(results, f, indent=4)
+        print(f"[*] Successfully saved benchmark profiling stats to {out_file}\n")
+    except Exception as e:
+        print(f"[!] Failed to write benchmark stats: {e}\n")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
