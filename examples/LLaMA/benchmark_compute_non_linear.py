@@ -43,41 +43,63 @@ def benchmark_linear(input_shape, weight_shape, max_iters=200, warmup=50):
     
     return avg_time_ms, tflops_per_sec
 
-def benchmark_sequential_layer(qkv_shapes, o_shapes, gu_shapes, down_shapes, max_iters=200, warmup=50):
+def benchmark_sequential_layer(qkv_shapes, o_shapes, gu_shapes, down_shapes, H, max_iters=200, warmup=50):
     """
-    完全模拟 LLaMA 单个 Layer 内部前向传播的算子串行执行顺序。
-    QKV -> O -> GateUp -> Down
+    完全模拟 LLaMA 单个 Layer 内部前向传播的 7 步算子串行执行顺序。
+    Norm -> QKV -> (忽略FlashAttn通信) -> O -> Norm -> GateUp -> SiLU -> Down
     """
     device = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
     dtype = torch.float16 if device == 'cuda' else torch.float32
     
     # 提前分配好所有的输入和权重，模拟显存驻留
-    x_qkv = torch.randn(qkv_shapes[0], device=device, dtype=dtype)
+    x_in = torch.randn(qkv_shapes[0], device=device, dtype=dtype)
     w_qkv = torch.randn(qkv_shapes[1], device=device, dtype=dtype)
     
     x_o = torch.randn(o_shapes[0], device=device, dtype=dtype)
     w_o = torch.randn(o_shapes[1], device=device, dtype=dtype)
     
-    x_gu = torch.randn(gu_shapes[0], device=device, dtype=dtype)
+    x_mlp = torch.randn(gu_shapes[0], device=device, dtype=dtype)
     w_gu = torch.randn(gu_shapes[1], device=device, dtype=dtype)
     
-    x_down = torch.randn(down_shapes[0], device=device, dtype=dtype)
+    # Fake weights for RMSNorm (LayerNorm approximation)
+    rmsnorm_weight = torch.ones(H, device=device, dtype=dtype)
+    
     w_down = torch.randn(down_shapes[1], device=device, dtype=dtype)
     
     for _ in range(warmup):
-        _ = torch.matmul(x_qkv, w_qkv.t())
-        _ = torch.matmul(x_o, w_o.t())
-        _ = torch.matmul(x_gu, w_gu.t())
-        _ = torch.matmul(x_down, w_down.t())
+        # 1. Input RMSNorm
+        norm1 = torch.nn.functional.layer_norm(x_in, (H,), weight=rmsnorm_weight)
+        # 2. QKV
+        qkv_out = torch.matmul(norm1, w_qkv.t())
+        # 3. O_Proj (Pretend attention happened and we have x_o)
+        o_out = torch.matmul(x_o, w_o.t())
+        # 4. Post-Attention RMSNorm
+        norm2 = torch.nn.functional.layer_norm(x_mlp, (H,), weight=rmsnorm_weight)
+        # 5. Gate+Up 升维
+        gu_out = torch.matmul(norm2, w_gu.t())
+        # 6. SiLU (SwiGLU 的非线性激活)
+        silu_out = torch.nn.functional.silu(gu_out)
+        # 7. Down 降维
+        _ = torch.matmul(silu_out[..., :down_shapes[0][1]], w_down.t())
         
     if device == 'cuda': torch.cuda.synchronize()
     start = time.time()
     
     for _ in range(max_iters):
-        _ = torch.matmul(x_qkv, w_qkv.t())
-        _ = torch.matmul(x_o, w_o.t())
-        _ = torch.matmul(x_gu, w_gu.t())
-        _ = torch.matmul(x_down, w_down.t())
+        # 1. Input RMSNorm
+        norm1 = torch.nn.functional.layer_norm(x_in, (H,), weight=rmsnorm_weight)
+        # 2. QKV
+        qkv_out = torch.matmul(norm1, w_qkv.t())
+        # 3. O_Proj 
+        o_out = torch.matmul(x_o, w_o.t())
+        # 4. Post-Attention RMSNorm
+        norm2 = torch.nn.functional.layer_norm(x_mlp, (H,), weight=rmsnorm_weight)
+        # 5. Gate+Up 升维
+        gu_out = torch.matmul(norm2, w_gu.t())
+        # 6. SiLU 
+        silu_out = torch.nn.functional.silu(gu_out)
+        # 7. Down 降维
+        _ = torch.matmul(silu_out[..., :down_shapes[0][1]], w_down.t())
         
     if device == 'cuda': torch.cuda.synchronize()
     end = time.time()
@@ -123,7 +145,8 @@ def profile_llama_layer(S=4096, B=1, H=4096, FFN=11008, tp_sizes=[1, 2, 4, 8]):
             ((M, H), (3 * H // tp, H)),
             ((M, H // tp), (H, H // tp)),
             ((M, H), (2 * FFN // tp, H)),
-            ((M, FFN // tp), (H, FFN // tp))
+            ((M, FFN // tp), (H, FFN // tp)),
+            H
         )
         
         print(f"{tp:<4} | {'Attn QKV':<12} | {qkv_time:<10.3f} | {qkv_tflops:<10.1f} | [{M:>5}, {H:>5}]       x [{3*H//tp:>5}, {H:>5}]")
