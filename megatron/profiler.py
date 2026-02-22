@@ -243,20 +243,29 @@ class HopsProfiler:
                     "avg_time_ms": avg_time
                 }
             
-        # 尝试动态获取全局 TP_SIZE 等配置并加上 Rank 专属标志避免覆写
-        tp_suffix = ""
+        # 尝试动态获取全局配置并加上 Rank 专属标志避免覆写
+        topo_suffix = ""
         rank_suffix = ""
         try:
             from megatron import get_args
             args = get_args()
-            if hasattr(args, 'tensor_model_parallel_size'):
-                tp_suffix = f"_tp{args.tensor_model_parallel_size}"
+            tp_size = getattr(args, 'tensor_model_parallel_size', 1)
+            pp_size = getattr(args, 'pipeline_model_parallel_size', 1)
+            dp_size = getattr(args, 'data_parallel_size', 1)
+            
+            if dist.is_initialized():
+                world_size = dist.get_world_size()
+                # Use standard calc just in case DP size attribute is missing
+                dp_size = world_size // (tp_size * pp_size)
+                
+            topo_suffix = f"_dp{dp_size}_tp{tp_size}_pp{pp_size}"
+            
             if dist.is_initialized():
                 rank_suffix = f"_rank{dist.get_rank()}"
         except Exception:
             pass
             
-        out_file = os.path.join(os.getcwd(), f"hops_profiling_results{tp_suffix}{rank_suffix}.json")
+        out_file = os.path.join(os.getcwd(), f"hops_profiling_results{topo_suffix}{rank_suffix}.json")
         try:
             with open(out_file, "w") as f:
                 json.dump(res, f, indent=4)
