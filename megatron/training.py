@@ -818,7 +818,12 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                          opt_param_scheduler)
             torch.distributed.barrier()
             print_datetime('exiting program at iteration {}'.format(iteration))
+            from megatron.profiler import hops_profiler
+            hops_profiler.dump()
             sys.exit()
+
+    from megatron.profiler import hops_profiler
+    hops_profiler.dump()
     return iteration
 
 
