@@ -188,6 +188,7 @@ class HopsProfiler:
             return
 
         res = {}
+        res_shapes = {}
         static_keys = [
             "Model_Grad_Params_Total", "Model_Grad_Params_Total_MB",
             "Model_Grad_Params_Embedding_And_Head", "Model_Grad_Params_Embedding_And_Head_MB", 
@@ -195,10 +196,15 @@ class HopsProfiler:
             "Param_Size_Bytes", "Reduce_Bucket_Size_MB"
         ]
         for k, v in self.stats.items():
-            if k in static_keys:
+            if "Shape_Tracer_" in k:
+                # Remove dummy keys for cleaner output
+                shape_data = {
+                    "Input_X_Shape": v.get("Input_X_Shape"),
+                    "Weight_W_Shape": v.get("Weight_W_Shape")
+                }
+                res_shapes[k.replace("Shape_Tracer_", "")] = shape_data
+            elif k in static_keys:
                 res[k] = v["total_ms"]
-            elif "Shape_Tracer_" in k:
-                res[k] = v
             else:
                 avg_time = v["total_ms"] / v["count"] if v["count"] else 0
                 res[k] = {
@@ -208,10 +214,16 @@ class HopsProfiler:
                 }
             
         out_file = os.path.join(os.getcwd(), "hops_profiling_results.json")
+        out_shapes_file = os.path.join(os.getcwd(), "hops_profiling_shapes.json")
         try:
             with open(out_file, "w") as f:
                 json.dump(res, f, indent=4)
-            print(f"\n[HopsProfiler] Successfully exported profiling stats to {out_file}\n", flush=True)
+            if res_shapes:
+                with open(out_shapes_file, "w") as f:
+                    json.dump(res_shapes, f, indent=4)
+            print(f"\n[HopsProfiler] Successfully exported profiling stats to {out_file}", flush=True)
+            if res_shapes:
+                print(f"[HopsProfiler] Successfully exported dynamic Tensor shapes to {out_shapes_file}\n", flush=True)
         except Exception as e:
             print(f"[HopsProfiler] Failed to write profile: {e}", flush=True)
 
