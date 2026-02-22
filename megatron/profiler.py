@@ -145,7 +145,7 @@ class HopsProfiler:
                 if self.layer_fwds_started > 120: # 10 warmup + 20 iters * 4 microbatches
                     self.detailed_profiling_enabled = False
 
-        if not self.detailed_profiling_enabled and not is_layer_total:
+        if not self.detailed_profiling_enabled and not is_layer_total and name != "Iteration":
             return
 
         real_name = name
