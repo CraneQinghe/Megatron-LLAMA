@@ -204,17 +204,15 @@ def profile_llama_layer(S=4096, B=1, H=4096, FFN=11008, tp_sizes=[1, 2, 4, 8]):
         
         # 将各算子的耗时与它们的具体输入、输出、权重形状绑定起来作为 JSON key
         # 格式: 算子名称::[输入形状]_x_[权重形状]
-        results[str(tp)] = {
-            f"RMSNorm_Input::[{M//tp}, {H}]_x_[{H}]": norm_time,
-            f"Attn_QKV::[{M}, {H}]_x_[{3*H//tp}, {H}]": qkv_time,
-            f"Attn_O::[{M}, {H//tp}]_x_[{H}, {H//tp}]": o_time,
-            f"RMSNorm_PostAttn::[{M//tp}, {H}]_x_[{H}]": norm_time,
-            f"MLP_GateUp::[{M}, {H}]_x_[{2*FFN//tp}, {H}]": gate_up_time,
-            f"SiLU::[{M}, {2*FFN//tp}]_x_None": silu_time,
-            f"MLP_Down::[{M}, {FFN//tp}]_x_[{H}, {FFN//tp}]": down_time,
-            "Sum_Parts": sum_of_parts,
-            "LAYER_REAL": simulated_layer_time
-        }
+        results[f"RMSNorm_Input::[{M//tp}, {H}]_x_[{H}]"] = norm_time
+        results[f"Attn_QKV::[{M}, {H}]_x_[{3*H//tp}, {H}]"] = qkv_time
+        results[f"Attn_O::[{M}, {H//tp}]_x_[{H}, {H//tp}]"] = o_time
+        results[f"RMSNorm_PostAttn::[{M//tp}, {H}]_x_[{H}]"] = norm_time
+        results[f"MLP_GateUp::[{M}, {H}]_x_[{2*FFN//tp}, {H}]"] = gate_up_time
+        results[f"SiLU::[{M}, {2*FFN//tp}]_x_None"] = silu_time
+        results[f"MLP_Down::[{M}, {FFN//tp}]_x_[{H}, {FFN//tp}]"] = down_time
+        results[f"Sum_Parts_TP{tp}"] = sum_of_parts
+        results[f"LAYER_REAL_TP{tp}"] = simulated_layer_time
         
     out_file = os.path.join(os.getcwd(), "benchmark_layer_times.json")
     try:
