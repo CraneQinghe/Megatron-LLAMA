@@ -257,16 +257,10 @@ class HopsProfiler:
             pass
             
         out_file = os.path.join(os.getcwd(), f"hops_profiling_results{tp_suffix}.json")
-        out_shapes_file = os.path.join(os.getcwd(), f"hops_profiling_shapes{tp_suffix}.json")
         try:
             with open(out_file, "w") as f:
                 json.dump(res, f, indent=4)
-            if res_shapes:
-                with open(out_shapes_file, "w") as f:
-                    json.dump(res_shapes, f, indent=4)
             print(f"\n[HopsProfiler] Successfully exported profiling stats to {out_file}", flush=True)
-            if res_shapes:
-                print(f"[HopsProfiler] Successfully exported dynamic Tensor shapes to {out_shapes_file}\n", flush=True)
         except Exception as e:
             print(f"[HopsProfiler] Failed to write profile: {e}", flush=True)
 
