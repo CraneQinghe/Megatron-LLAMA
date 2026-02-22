@@ -202,14 +202,16 @@ def profile_llama_layer(S=4096, B=1, H=4096, FFN=11008, tp_sizes=[1, 2, 4, 8]):
         print(f"{tp:<4} | {'[LAYER REAL]':<12} | {simulated_layer_time:<10.3f} | {' '*10} | (Sequential Pipeline Simulation)")
         print("-" * 110)
         
+        # 将各算子的耗时与它们的具体输入、输出、权重形状绑定起来作为 JSON key
+        # 格式: 算子名称::[输入形状]_x_[权重形状]
         results[str(tp)] = {
-            "RMSNorm_Input": norm_time,
-            "Attn_QKV": qkv_time,
-            "Attn_O": o_time,
-            "RMSNorm_PostAttn": norm_time,
-            "MLP_GateUp": gate_up_time,
-            "SiLU": silu_time,
-            "MLP_Down": down_time,
+            f"RMSNorm_Input::[{M//tp}, {H}]_x_[{H}]": norm_time,
+            f"Attn_QKV::[{M}, {H}]_x_[{3*H//tp}, {H}]": qkv_time,
+            f"Attn_O::[{M}, {H//tp}]_x_[{H}, {H//tp}]": o_time,
+            f"RMSNorm_PostAttn::[{M//tp}, {H}]_x_[{H}]": norm_time,
+            f"MLP_GateUp::[{M}, {H}]_x_[{2*FFN//tp}, {H}]": gate_up_time,
+            f"SiLU::[{M}, {2*FFN//tp}]_x_None": silu_time,
+            f"MLP_Down::[{M}, {FFN//tp}]_x_[{H}, {FFN//tp}]": down_time,
             "Sum_Parts": sum_of_parts,
             "LAYER_REAL": simulated_layer_time
         }
