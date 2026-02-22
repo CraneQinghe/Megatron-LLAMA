@@ -261,6 +261,21 @@ class HopsProfiler:
             
         out_file = os.path.join(os.getcwd(), f"hops_profiling_results{tp_suffix}{rank_suffix}.json")
         try:
+            if dist.is_initialized():
+                world_size = dist.get_world_size()
+                rank = dist.get_rank()
+                # Gather the stats dictionaries from all ranks into a list on Rank 0
+                gathered_res = [None for _ in range(world_size)]
+                dist.all_gather_object(gathered_res, res)
+                
+                # If we are Rank 0, we merge the missing keys (e.g., 'Logits_Forward' from Rank N) into our local dict
+                if rank == 0:
+                    for foreign_res in gathered_res:
+                        if foreign_res is None: continue
+                        for foreign_key, foreign_val in foreign_res.items():
+                            if foreign_key not in res:
+                                res[foreign_key] = foreign_val
+                                
             with open(out_file, "w") as f:
                 json.dump(res, f, indent=4)
             print(f"\n[HopsProfiler] Successfully exported profiling stats to {out_file}", flush=True)
