@@ -197,12 +197,12 @@ class HopsProfiler:
 
     def dump(self):
         print(f"[Debug HopsProfiler] dump() called!", flush=True)
-        try:
-            if dist.is_initialized() and dist.get_rank() != 0:
-                print(f"[Debug HopsProfiler] Skipping dump because rank != 0", flush=True)
-                return
-        except:
-            pass
+        # try:
+        #     if dist.is_initialized() and dist.get_rank() != 0:
+        #         print(f"[Debug HopsProfiler] Skipping dump because rank != 0", flush=True)
+        #         return
+        # except:
+        #     pass
 
         if self.async_events_to_measure:
             torch.cuda.synchronize()
@@ -246,17 +246,20 @@ class HopsProfiler:
                     "avg_time_ms": avg_time
                 }
             
-        # 尝试动态获取全局 TP_SIZE 环境变量或者参数
+        # 尝试动态获取全局 TP_SIZE 等配置并加上 Rank 专属标志避免覆写
         tp_suffix = ""
+        rank_suffix = ""
         try:
             from megatron import get_args
             args = get_args()
             if hasattr(args, 'tensor_model_parallel_size'):
                 tp_suffix = f"_tp{args.tensor_model_parallel_size}"
+            if dist.is_initialized():
+                rank_suffix = f"_rank{dist.get_rank()}"
         except Exception:
             pass
             
-        out_file = os.path.join(os.getcwd(), f"hops_profiling_results{tp_suffix}.json")
+        out_file = os.path.join(os.getcwd(), f"hops_profiling_results{tp_suffix}{rank_suffix}.json")
         try:
             with open(out_file, "w") as f:
                 json.dump(res, f, indent=4)
