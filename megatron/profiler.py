@@ -197,6 +197,8 @@ class HopsProfiler:
         for k, v in self.stats.items():
             if k in static_keys:
                 res[k] = v["total_ms"]
+            elif "Shape_Tracer_" in k:
+                res[k] = v
             else:
                 avg_time = v["total_ms"] / v["count"] if v["count"] else 0
                 res[k] = {
