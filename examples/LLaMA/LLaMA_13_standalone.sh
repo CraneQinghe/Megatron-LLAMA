@@ -39,7 +39,7 @@ LOAD_CHECKPOINT_PATH="/root/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/cp"
 SAVE_CHECKPOINT_PATH="/root/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/cp"
 # TOKENIZER_PATH="/data/haiqwa/gpt/jcz/Meta-Llama-3.1-8B-Instruct"
 TOKENIZER_PATH="/data/haiqwa/zevin_nfs/andy/Auto-Parallelization/nnscaler_group1/llama-model-config/Meta-Llama-3.1-8B"
-TRAIN_ITERS=100
+TRAIN_ITERS=50
 EVAL_ITERS=0
 EVAL_INTERVAL=1000
 SAVE_INTERVAL=100
@@ -54,7 +54,7 @@ options=" \
     --sequence-parallel \
         --tensor-model-parallel-size ${TP_SIZE} \
         --pipeline-model-parallel-size ${PP_SIZE} \
-    --num-layers 32 \
+    --num-layers 8 \
         --hidden-size 4096 \
         --num-attention-heads 32 \
         --seq-length ${SEQ_LENGTH} \
