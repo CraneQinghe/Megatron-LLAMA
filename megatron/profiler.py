@@ -67,37 +67,68 @@ class HopsProfiler:
 
         # --- Dynamic Shape Tracing Hook Injection (PyTorch Native FX alternative) ---
         self.recorded_shape_keys = set()
+        # --- Dynamic Sequential Execution Tracer Hook Injection ---
+        self.Layer_Sequential_Shapes = []
+        self._traced_one_layer = False
+        self._current_trace_step = 0
         
-        def create_shape_hook(layer_label):
+        def create_sequential_hook(module_name):
             def hook(module, inputs, output):
-                if layer_label in self.recorded_shape_keys: return
-                self.recorded_shape_keys.add(layer_label)
+                if self._traced_one_layer: return
+                
                 try:
-                    # Capturing exactly what runs on the GPU!
-                    x_shape = list(inputs[0].shape)
-                    w_shape = list(module.weight.shape) if hasattr(module, 'weight') and module.weight is not None else []
+                    # Parse inputs (sometimes can be a tuple, so we get the first tensor)
+                    x_shape = "None"
+                    if isinstance(inputs, tuple) and len(inputs) > 0 and hasattr(inputs[0], 'shape'):
+                        x_shape = str(list(inputs[0].shape))
+                    elif hasattr(inputs, 'shape'):
+                        x_shape = str(list(inputs.shape))
+                        
+                    # Parse outputs
+                    y_shape = "None"
+                    if isinstance(output, tuple) and len(output) > 0 and hasattr(output[0], 'shape'):
+                        y_shape = str(list(output[0].shape))
+                    elif hasattr(output, 'shape'):
+                        y_shape = str(list(output.shape))
+                        
+                    w_shape = str(list(module.weight.shape)) if hasattr(module, 'weight') and module.weight is not None else "None"
                     
-                    self.stats[f"Shape_Tracer_{layer_label}"] = {
-                        "count": 1,
-                        "avg_time_ms": 0, # Dummy to prevent parser crashes
-                        "Input_X_Shape": str(x_shape),
-                        "Weight_W_Shape": str(w_shape)
+                    # Record the execution order with step index
+                    step_info = {
+                        "Step": self._current_trace_step,
+                        "Module_Name": module_name,
+                        "Type": module.__class__.__name__,
+                        "Input_Shape": x_shape,
+                        "Output_Shape": y_shape,
+                        "Weight_Shape": w_shape
                     }
+                    self.Layer_Sequential_Shapes.append(step_info)
+                    
+                    self._current_trace_step += 1
+                    
+                    # Store inside the dummy Shape_Tracer payload so JSON serialization catches it
+                    self.stats["Shape_Tracer_Sequential_Flow"] = {
+                        "count": 1,
+                        "avg_time_ms": 0,
+                        "Sequential_Flow": self.Layer_Sequential_Shapes
+                    }
+                    
+                    # If we reached the end of the first layer's Forward Pass (usually the final DropPath/Add)
+                    # We latch it so it doesn't trace microbatches or layer 2, 3, 4 over and over.
+                    # We heuristically stop after ~20-30 sequential primitive hooks fire per layer.
+                    if self._current_trace_step > 40:
+                        self._traced_one_layer = True
+                        
                 except Exception as e:
                     pass
             return hook
 
         for m in model:
+            # We strictly bind hooks to the very first Transformer Layer instance to avoid clutter
             for name, module in m.named_modules():
-                # We only hook the innermost Linear operators!
-                if "attention.query_key_value" in name:
-                    module.register_forward_hook(create_shape_hook("Attn_QKV"))
-                elif "attention.dense" in name:
-                    module.register_forward_hook(create_shape_hook("Attn_O_Proj"))
-                elif "mlp.dense_h_to_4h" in name:
-                    module.register_forward_hook(create_shape_hook("MLP_GateUp"))
-                elif "mlp.dense_4h_to_h" in name:
-                    module.register_forward_hook(create_shape_hook("MLP_Down"))
+                # We want to capture leaf modules (ops) inside the first transformer layer
+                if "layers.0" in name and not list(module.children()):
+                    module.register_forward_hook(create_sequential_hook(name))
 
     def start(self, name):
         if not self.enabled: return
@@ -201,12 +232,14 @@ class HopsProfiler:
         ]
         for k, v in self.stats.items():
             if "Shape_Tracer_" in k:
-                # Remove dummy keys for cleaner output
-                shape_data = {
-                    "Input_X_Shape": v.get("Input_X_Shape"),
-                    "Weight_W_Shape": v.get("Weight_W_Shape")
-                }
-                res_shapes[k.replace("Shape_Tracer_", "")] = shape_data
+                if "Sequential_Flow" in v:
+                    res_shapes[k.replace("Shape_Tracer_", "")] = v["Sequential_Flow"]
+                else:
+                    shape_data = {
+                        "Input_X_Shape": v.get("Input_X_Shape"),
+                        "Weight_W_Shape": v.get("Weight_W_Shape")
+                    }
+                    res_shapes[k.replace("Shape_Tracer_", "")] = shape_data
             elif k in static_keys:
                 res[k] = v["total_ms"]
             else:
