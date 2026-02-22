@@ -43,6 +43,35 @@ def benchmark_linear(input_shape, weight_shape, max_iters=200, warmup=50):
     
     return avg_time_ms, tflops_per_sec
 
+def benchmark_memory_bound(op_type, shape, max_iters=200, warmup=50):
+    """
+    测量纯访存算子 (LayerNorm, SiLU) 的执行时间。
+    """
+    device = 'cuda' if torch.cuda.is_available() else ('mps' if torch.backends.mps.is_available() else 'cpu')
+    dtype = torch.float16 if device == 'cuda' else torch.float32
+    
+    x = torch.randn(shape, device=device, dtype=dtype)
+    
+    if op_type == "rmsnorm":
+        w = torch.ones(shape[-1], device=device, dtype=dtype)
+        op = lambda: torch.nn.functional.layer_norm(x, (shape[-1],), weight=w)
+    elif op_type == "silu":
+        op = lambda: torch.nn.functional.silu(x)
+        
+    for _ in range(warmup):
+        op()
+        
+    if device == 'cuda': torch.cuda.synchronize()
+    start = time.time()
+    
+    for _ in range(max_iters):
+        op()
+        
+    if device == 'cuda': torch.cuda.synchronize()
+    end = time.time()
+    
+    return (end - start) / max_iters * 1000.0
+
 def benchmark_sequential_layer(qkv_shapes, o_shapes, gu_shapes, down_shapes, H, max_iters=200, warmup=50):
     """
     完全模拟 LLaMA 单个 Layer 内部前向传播的 7 步算子串行执行顺序。
@@ -140,6 +169,11 @@ def profile_llama_layer(S=4096, B=1, H=4096, FFN=11008, tp_sizes=[1, 2, 4, 8]):
         total_attn = qkv_time + o_time
         total_mlp = gate_up_time + down_time
         
+        # 独立测量访存算子的耗时 (Seq Parallel 会对序列 S 进行切片，所以这里的行数是 M/tp)
+        norm_time = benchmark_memory_bound("rmsnorm", (M // tp, H))
+        # SiLU 发生在 Gate+Up 之后，被 TP 切分过
+        silu_time = benchmark_memory_bound("silu", (M, 2 * FFN // tp))
+        
         # 串行合并跑（测量更真实的 L2 Cache 竞争与上下文切换开销）
         simulated_layer_time = benchmark_sequential_layer(
             ((M, H), (3 * H // tp, H)),
@@ -149,12 +183,18 @@ def profile_llama_layer(S=4096, B=1, H=4096, FFN=11008, tp_sizes=[1, 2, 4, 8]):
             H
         )
         
+        print(f"{tp:<4} | {'[Memory]':<12} | {norm_time:<10.3f} | {'N/A (Bound)':<10} | RMSNorm (Input)")
         print(f"{tp:<4} | {'Attn QKV':<12} | {qkv_time:<10.3f} | {qkv_tflops:<10.1f} | [{M:>5}, {H:>5}]       x [{3*H//tp:>5}, {H:>5}]")
         print(f"{tp:<4} | {'Attn O':<12} | {o_time:<10.3f} | {o_tflops:<10.1f} | [{M:>5}, {H//tp:>5}]       x [{H:>5}, {H//tp:>5}]")
         print(f"{tp:<4} | {'[Attn Total]':<12} | {total_attn:<10.3f} |")
+        print(f"{tp:<4} | {'[Memory]':<12} | {norm_time:<10.3f} | {'N/A (Bound)':<10} | RMSNorm (Post Attn)")
         print(f"{tp:<4} | {'MLP GateUp':<12} | {gate_up_time:<10.3f} | {gu_tflops:<10.1f} | [{M:>5}, {H:>5}]       x [{2*FFN//tp:>5}, {H:>5}]")
+        print(f"{tp:<4} | {'[Memory]':<12} | {silu_time:<10.3f} | {'N/A (Bound)':<10} | SiLU (Swish Activation)")
         print(f"{tp:<4} | {'MLP Down':<12} | {down_time:<10.3f} | {d_tflops:<10.1f} | [{M:>5}, {FFN//tp:>5}]       x [{H:>5}, {FFN//tp:>5}]")
         print(f"{tp:<4} | {'[MLP Total]':<12} | {total_mlp:<10.3f} |")
+        
+        sum_of_parts = norm_time + total_attn + norm_time + total_mlp + silu_time
+        print(f"{tp:<4} | {'[Sum Parts]':<12} | {sum_of_parts:<10.3f} | {' '*10} | (Math Sum of 7 Operators)")
         print(f"{tp:<4} | {'[LAYER REAL]':<12} | {simulated_layer_time:<10.3f} | {' '*10} | (Sequential Pipeline Simulation)")
         print("-" * 110)
 
