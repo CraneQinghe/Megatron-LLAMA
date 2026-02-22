@@ -115,6 +115,11 @@ class LLaMAModel(MegatronModule):
             return logits
         else:
             loss = None
+            
+            # Use profiler for precise loss measurement
+            from megatron.profiler import hops_profiler
+            hops_profiler.start("Loss_Softmax_Forward")
+            
             # [invalid] Shift so that tokens < n predict n
             # Do not need to shift here
             shift_logits = logits[..., :-1, :].contiguous()
@@ -126,6 +131,8 @@ class LLaMAModel(MegatronModule):
             # Enable model parallelism
             shift_labels = shift_labels.to(shift_logits.device)
             loss = loss_fct(shift_logits, shift_labels)
+            
+            hops_profiler.stop("Loss_Softmax_Forward")
 
             return loss
 
