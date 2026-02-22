@@ -115,7 +115,7 @@ class HopsProfiler:
             
             if name == self.heartbeat_layer_name:
                 self.layer_fwds_started += 1
-                if self.layer_fwds_started > 200: # 50 iters * 4 microbatches
+                if self.layer_fwds_started > 120: # 10 warmup + 20 iters * 4 microbatches
                     self.detailed_profiling_enabled = False
 
         if not self.detailed_profiling_enabled and not is_layer_total:
@@ -152,17 +152,21 @@ class HopsProfiler:
         end_evt = torch.cuda.Event(enable_timing=True)
         end_evt.record()
 
+        is_warmup = self.layer_fwds_started <= 40
+
         if self.detailed_profiling_enabled:
             # Force serialization and calculate locally to simulate the sync overhead
             torch.cuda.synchronize()
             elapsed = start_evt.elapsed_time(end_evt)
-            if real_name not in self.stats:
-                self.stats[real_name] = {"count": 0, "total_ms": 0.0}
-            self.stats[real_name]["count"] += 1
-            self.stats[real_name]["total_ms"] += elapsed
+            if not is_warmup:
+                if real_name not in self.stats:
+                    self.stats[real_name] = {"count": 0, "total_ms": 0.0}
+                self.stats[real_name]["count"] += 1
+                self.stats[real_name]["total_ms"] += elapsed
         else:
             # Fully Non-blocking: just record events to not affect system dynamics
-            self.async_events_to_measure.append((real_name, start_evt, end_evt))
+            if not is_warmup:
+                self.async_events_to_measure.append((real_name, start_evt, end_evt))
 
     def dump(self):
         print(f"[Debug HopsProfiler] dump() called!", flush=True)
