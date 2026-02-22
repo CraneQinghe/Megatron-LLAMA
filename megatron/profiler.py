@@ -24,11 +24,11 @@ class HopsProfiler:
         atexit.register(self.dump)
 
     def record_model_info(self, model, args):
-        try:
-            if dist.is_initialized() and dist.get_rank() != 0:
-                return
-        except:
-            pass
+        # try:
+        #     if dist.is_initialized() and dist.get_rank() != 0:
+        #         return
+        # except:
+        #     pass
         
         # We need to explicitly isolate the parameters to extrapolate full model DP cost
         vocab_emb_params = 0
@@ -128,11 +128,11 @@ class HopsProfiler:
 
     def start(self, name):
         if not self.enabled: return
-        try:
-            if dist.is_initialized() and dist.get_rank() != 0:
-                return
-        except:
-            pass
+        # try:
+        #     if dist.is_initialized() and dist.get_rank() != 0:
+        #         return
+        # except:
+        #     pass
             
         is_layer_total = "Layer_" in name and "_Total" in name
 
@@ -158,11 +158,11 @@ class HopsProfiler:
 
     def stop(self, name):
         if not self.enabled: return
-        try:
-            if dist.is_initialized() and dist.get_rank() != 0:
-                return
-        except:
-            pass
+        # try:
+        #     if dist.is_initialized() and dist.get_rank() != 0:
+        #         return
+        # except:
+        #     pass
 
         is_layer_total = "Layer_" in name and "_Total" in name
         real_name = name
