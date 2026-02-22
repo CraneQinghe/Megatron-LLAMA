@@ -65,6 +65,40 @@ class HopsProfiler:
         self.stats["Param_Size_Bytes"] = {"count": 1, "total_ms": param_bytes}
         self.stats["Reduce_Bucket_Size_MB"] = {"count": 1, "total_ms": bucket_size_mb}
 
+        # --- Dynamic Shape Tracing Hook Injection (PyTorch Native FX alternative) ---
+        self.recorded_shape_keys = set()
+        
+        def create_shape_hook(layer_label):
+            def hook(module, inputs, output):
+                if layer_label in self.recorded_shape_keys: return
+                self.recorded_shape_keys.add(layer_label)
+                try:
+                    # Capturing exactly what runs on the GPU!
+                    x_shape = list(inputs[0].shape)
+                    w_shape = list(module.weight.shape) if hasattr(module, 'weight') and module.weight is not None else []
+                    
+                    self.stats[f"Shape_Tracer_{layer_label}"] = {
+                        "count": 1,
+                        "avg_time_ms": 0, # Dummy to prevent parser crashes
+                        "Input_X_Shape": str(x_shape),
+                        "Weight_W_Shape": str(w_shape)
+                    }
+                except Exception as e:
+                    pass
+            return hook
+
+        for m in model:
+            for name, module in m.named_modules():
+                # We only hook the innermost Linear operators!
+                if "attention.query_key_value" in name:
+                    module.register_forward_hook(create_shape_hook("Attn_QKV"))
+                elif "attention.dense" in name:
+                    module.register_forward_hook(create_shape_hook("Attn_O_Proj"))
+                elif "mlp.dense_h_to_4h" in name:
+                    module.register_forward_hook(create_shape_hook("MLP_GateUp"))
+                elif "mlp.dense_4h_to_h" in name:
+                    module.register_forward_hook(create_shape_hook("MLP_Down"))
+
     def start(self, name):
         if not self.enabled: return
         try:
