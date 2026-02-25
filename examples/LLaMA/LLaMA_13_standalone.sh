@@ -7,9 +7,9 @@ DATASET="/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/dataset/datas
 MASTER_ADDR=172.20.$1.2
 NODE_RANK=$2
 NNODES=1
-TP_SIZE=4
+TP_SIZE=2
 
-PP_SIZE=1
+PP_SIZE=2
 SEQ_LENGTH=4096
 WORLD_SIZE=4
 DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
@@ -106,4 +106,4 @@ options=" \
     --use-flash-attn"
 
 # 执行训练命令
-torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=8 --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
+torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=${WORLD_SIZE} --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
