@@ -232,12 +232,22 @@ def _communicate(*, tensor_send_next: Optional[torch.Tensor],
                 get_pipeline_model_parallel_next_rank())
             ops.append(recv_next_op)
         if len(ops) > 0:
+            try:
+                from megatron.profiler import hops_profiler
+                hops_profiler.start("PP_Comm_Wait")
+            except:
+                pass
             reqs = torch.distributed.batch_isend_irecv(ops)
             for req in reqs:
                 req.wait()
-        # To protect against race condition when using batch_isend_irecv().
-        # User should assert that we have a modern enough PyTorch to not need this
-        torch.cuda.synchronize()
+            # To protect against race condition when using batch_isend_irecv().
+            # User should assert that we have a modern enough PyTorch to not need this
+            torch.cuda.synchronize()
+            try:
+                from megatron.profiler import hops_profiler
+                hops_profiler.stop("PP_Comm_Wait")
+            except:
+                pass
 
     return tensor_recv_prev, tensor_recv_next
 
