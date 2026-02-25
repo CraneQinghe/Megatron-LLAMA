@@ -16,11 +16,6 @@ from .optimizer import MixedPrecisionOptimizer, _zero_grad_group_helper
 from datetime import datetime  
 import time
 import os
-now = datetime.now()
-date_str=now.strftime("%m-%d")
-time_str=now.strftime("%H")
-folder_path = f"/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/logs/comm_time/{date_str}/{time_str}/"
-os.makedirs(folder_path, exist_ok=True)
 
 class Range:
     """

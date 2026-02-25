@@ -444,7 +444,17 @@ def train_step(forward_step_func, data_iterator,
         torch.cuda.empty_cache()
 
     # Reduce gradients.
+    try:
+        from megatron.profiler import hops_profiler
+        hops_profiler.start("DP_ReduceScatter_Wait")
+    except:
+        pass
     optimizer.reduce_model_grads(args, timers)
+    try:
+        from megatron.profiler import hops_profiler
+        hops_profiler.stop("DP_ReduceScatter_Wait")
+    except:
+        pass
 
     # Vision gradients.
     if args.vision_pretraining and args.vision_pretraining_type == "dino":
@@ -464,7 +474,17 @@ def train_step(forward_step_func, data_iterator,
 
     # Gather params.
     if update_successful:
+        try:
+            from megatron.profiler import hops_profiler
+            hops_profiler.start("DP_AllGather_Wait")
+        except:
+            pass
         optimizer.gather_model_params(args, timers)
+        try:
+            from megatron.profiler import hops_profiler
+            hops_profiler.stop("DP_AllGather_Wait")
+        except:
+            pass
 
     # Vision momentum.
     if args.vision_pretraining and args.vision_pretraining_type == "dino":
