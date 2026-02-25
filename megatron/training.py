@@ -446,6 +446,15 @@ def train_step(forward_step_func, data_iterator,
     # Reduce gradients.
     try:
         from megatron.profiler import hops_profiler
+        import torch.distributed as dist
+        hops_profiler.start("DP_Global_Sync_Barrier")
+        dist.barrier()
+        hops_profiler.stop("DP_Global_Sync_Barrier")
+    except:
+        pass
+
+    try:
+        from megatron.profiler import hops_profiler
         hops_profiler.start("DP_ReduceScatter_Wait")
     except:
         pass
@@ -474,6 +483,15 @@ def train_step(forward_step_func, data_iterator,
 
     # Gather params.
     if update_successful:
+        try:
+            from megatron.profiler import hops_profiler
+            import torch.distributed as dist
+            hops_profiler.start("DP_AllGather_Sync_Barrier")
+            dist.barrier()
+            hops_profiler.stop("DP_AllGather_Sync_Barrier")
+        except:
+            pass
+
         try:
             from megatron.profiler import hops_profiler
             hops_profiler.start("DP_AllGather_Wait")
