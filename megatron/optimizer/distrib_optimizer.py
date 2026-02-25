@@ -936,6 +936,14 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
         for index, (model_index, dtype, gbuf, gbuf_views) \
                 in enumerate(gbuf_view_items):
             size_MB = gbuf_views[data_parallel_rank].numel() * gbuf_views[data_parallel_rank].element_size() / (1024**2)  # 转换为 MB
+            
+            try:
+                from megatron.profiler import hops_profiler
+                if "DP_ReduceScatter_Payload_MB" not in hops_profiler.stats:
+                     hops_profiler.stats["DP_ReduceScatter_Payload_MB"] = {"count": 1, "total_ms": size_MB}
+            except:
+                pass
+
             torch.distributed._reduce_scatter_base(
                 gbuf_views[data_parallel_rank],
                 gbuf,
@@ -979,6 +987,14 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
         for index, (model_index, dtype, pbuf, pbuf_views) \
                 in enumerate(pbuf_view_items):
             size_MB = pbuf_views[data_parallel_rank].numel() * pbuf_views[data_parallel_rank].element_size() / (1024**2)  # 转换为 MB
+            
+            try:
+                from megatron.profiler import hops_profiler
+                if "DP_AllGather_Payload_MB" not in hops_profiler.stats:
+                     hops_profiler.stats["DP_AllGather_Payload_MB"] = {"count": 1, "total_ms": size_MB}
+            except:
+                pass
+
             torch.distributed._all_gather_base(
                 pbuf,
                 pbuf_views[data_parallel_rank],
