@@ -447,6 +447,7 @@ def train_step(forward_step_func, data_iterator,
     try:
         from megatron.profiler import hops_profiler
         import torch.distributed as dist
+        torch.cuda.synchronize() # 强制同步，排除 Backward 尾部干扰
         hops_profiler.start("DP_Global_Sync_Barrier")
         dist.barrier()
         hops_profiler.stop("DP_Global_Sync_Barrier")
@@ -455,6 +456,7 @@ def train_step(forward_step_func, data_iterator,
 
     try:
         from megatron.profiler import hops_profiler
+        torch.cuda.synchronize() # 强制同步
         hops_profiler.start("DP_ReduceScatter_Wait")
     except:
         pass
@@ -486,6 +488,7 @@ def train_step(forward_step_func, data_iterator,
         try:
             from megatron.profiler import hops_profiler
             import torch.distributed as dist
+            torch.cuda.synchronize() # 强制同步
             hops_profiler.start("DP_AllGather_Sync_Barrier")
             dist.barrier()
             hops_profiler.stop("DP_AllGather_Sync_Barrier")
@@ -494,6 +497,7 @@ def train_step(forward_step_func, data_iterator,
 
         try:
             from megatron.profiler import hops_profiler
+            torch.cuda.synchronize() # 强制同步
             hops_profiler.start("DP_AllGather_Wait")
         except:
             pass
