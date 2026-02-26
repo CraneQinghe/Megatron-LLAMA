@@ -9,7 +9,6 @@ import amp_C
 import torch
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
-from megatron.comm_counter import Comm_counter
 from megatron import get_timers
 from megatron import print_rank_0
 from megatron.core import mpu, tensor_parallel
@@ -226,12 +225,15 @@ class MegatronOptimizer(ABC):
                 else:
                     grad = word_embeddings_weight.grad
                 torch.distributed.all_reduce(grad, group=mpu.get_embedding_group())
-                size_MB = 2*grad.numel() * grad.element_size() / (1024**2)  # 转换为 MB
-                rank = torch.distributed.get_rank()
-                if rank==0:
-                    comm_counter1=Comm_counter()
-                    comm_counter1.add_allreduce_embedding_grads_total_size_MB(size_MB)
-                    comm_counter1.set_allreduce_embedding_grads_shape(grad.shape)
+                size_MB = grad.numel() * grad.element_size() / (1024**2)
+                try:
+                    from megatron.profiler import hops_profiler
+                    hops_profiler.stats["WordEmbedding_AllReduce_Payload"] = {
+                        "size_mb": size_MB,
+                        "ranks": list(torch.distributed.get_process_group_ranks(mpu.get_embedding_group())) if hasattr(torch.distributed, 'get_process_group_ranks') else []
+                    }
+                except:
+                    pass
 
 
     def allreduce_position_embedding_grads(self, args):
@@ -251,12 +253,15 @@ class MegatronOptimizer(ABC):
                 'T5 model is only supported with local DDP mode'
             grad = unwrapped_model.language_model.embedding.position_embeddings.weight.main_grad
             torch.distributed.all_reduce(grad, group=mpu.get_position_embedding_group())
-            size_MB = 2*grad.numel() * grad.element_size() / (1024**2)  # 转换为 MB
-            rank = torch.distributed.get_rank()
-            if rank==0:
-                comm_counter1=Comm_counter()
-                comm_counter1.add_allreduce_embedding_grads_total_size_MB(size_MB)
-                comm_counter1.set_allreduce_embedding_grads_shape(grad.shape)
+            size_MB = grad.numel() * grad.element_size() / (1024**2)
+            try:
+                from megatron.profiler import hops_profiler
+                hops_profiler.stats["PositionEmbedding_AllReduce_Payload"] = {
+                    "size_mb": size_MB,
+                    "ranks": list(torch.distributed.get_process_group_ranks(mpu.get_position_embedding_group())) if hasattr(torch.distributed, 'get_process_group_ranks') else []
+                }
+            except:
+                pass
 
 
     def allreduce_embedding_grads(self, args):
@@ -288,12 +293,15 @@ class MegatronOptimizer(ABC):
                     coalesced, grads)):
                 buf.copy_(synced)
             
-            size_MB = 2*coalesced.numel() * coalesced.element_size() / (1024**2)  # 转换为 MB
-            rank = torch.distributed.get_rank()
-            if rank==0:
-                comm_counter1=Comm_counter()
-                comm_counter1.add_allreduce_layernorm_grads_total_size_MB(size_MB)
-                comm_counter1.set_allreduce_layernorm_grads_shape(coalesced.shape)
+            size_MB = coalesced.numel() * coalesced.element_size() / (1024**2)
+            try:
+                from megatron.profiler import hops_profiler
+                hops_profiler.stats["LayerNorm_AllReduce_Payload"] = {
+                    "size_mb": size_MB,
+                    "ranks": list(torch.distributed.get_process_group_ranks(mpu.get_tensor_model_parallel_group())) if hasattr(torch.distributed, 'get_process_group_ranks') else []
+                }
+            except:
+                pass
 
 
     def reduce_model_grads(self, args, timers):

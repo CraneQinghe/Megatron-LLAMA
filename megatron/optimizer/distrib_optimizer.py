@@ -5,7 +5,6 @@
 from apex.optimizers import FusedAdam as Adam
 import math
 import torch
-from megatron.comm_counter import Comm_counter
 from megatron import get_args
 from megatron import get_timers
 from megatron import print_rank_0
@@ -909,18 +908,47 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
         # All-reduce layer-norm grads (for sequence parallelism).
         timers('layernorm-grads-all-reduce', log_level=1).start(
             barrier=args.barrier_with_L1_time)
+        try:
+            from megatron.profiler import hops_profiler
+            torch.cuda.synchronize()
+            hops_profiler.start("LayerNorm_Grads_AllReduce_Wait")
+        except: pass
+
         self.allreduce_layernorm_grads(args)
+
+        try:
+            torch.cuda.synchronize()
+            hops_profiler.stop("LayerNorm_Grads_AllReduce_Wait")
+        except: pass
         timers('layernorm-grads-all-reduce').stop()
 
         # All-reduce embedding grads.
         timers('embedding-grads-all-reduce', log_level=1).start(
             barrier=args.barrier_with_L1_time)
+        try:
+            from megatron.profiler import hops_profiler
+            torch.cuda.synchronize()
+            hops_profiler.start("Embedding_Grads_AllReduce_Wait")
+        except: pass
+
         self.allreduce_embedding_grads(args)
+
+        try:
+            torch.cuda.synchronize()
+            hops_profiler.stop("Embedding_Grads_AllReduce_Wait")
+        except: pass
         timers('embedding-grads-all-reduce').stop()
 
         # Reduce-scatter setup.
         timers('grads-reduce-scatter', log_level=1).start(
             barrier=args.barrier_with_L1_time)
+        
+        try:
+            from megatron.profiler import hops_profiler
+            torch.cuda.synchronize()
+            hops_profiler.start("Main_ReduceScatter_Wait")
+        except: pass
+
         data_parallel_rank = mpu.get_data_parallel_rank()
         data_parallel_world_size = mpu.get_data_parallel_world_size()
         data_parallel_group = mpu.get_data_parallel_group()
@@ -930,20 +958,12 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
             for dtype, gbuf in model._grad_buffers.items():
                 gbuf.data /= data_parallel_world_size
 
-        total_size_MB=0
+        total_size_MB = 0
         # Reduce-scatter all grads.
         gbuf_view_items = self.get_model_grad_buffer_dp_views()
         for index, (model_index, dtype, gbuf, gbuf_views) \
                 in enumerate(gbuf_view_items):
-            size_MB = gbuf_views[data_parallel_rank].numel() * gbuf_views[data_parallel_rank].element_size() / (1024**2)  # 转换为 MB
-            
-            try:
-                from megatron.profiler import hops_profiler
-                if "DP_ReduceScatter_Payload_MB" not in hops_profiler.stats:
-                     hops_profiler.stats["DP_ReduceScatter_Payload_MB"] = {"count": 1, "total_ms": size_MB}
-            except:
-                pass
-
+            size_MB = gbuf_views[data_parallel_rank].numel() * gbuf_views[data_parallel_rank].element_size() / (1024**2)
             torch.distributed._reduce_scatter_base(
                 gbuf_views[data_parallel_rank],
                 gbuf,
@@ -951,13 +971,15 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
             )
             total_size_MB += size_MB
 
-        rank = torch.distributed.get_rank()
-        if rank==0:
-            nranks=torch.distributed.get_world_size(data_parallel_group)
-            comm_counter1=Comm_counter()
-            comm_counter1.add_reduce_scatter_tensor_total_size_MB(total_size_MB)
-            comm_counter1.set_reduce_scatter_tensor_shape(gbuf_views[data_parallel_rank].shape)
-            comm_counter1.set_data_parallel_group_rank(nranks)
+        try:
+            torch.cuda.synchronize()
+            hops_profiler.stop("Main_ReduceScatter_Wait")
+            hops_profiler.stats["DP_ReduceScatter_Payload"] = {
+                "size_mb": total_size_MB,
+                "ranks": list(torch.distributed.get_process_group_ranks(data_parallel_group)) if hasattr(torch.distributed, 'get_process_group_ranks') else []
+            }
+        except:
+            pass
 
         timers('grads-reduce-scatter').stop()
 
@@ -976,37 +998,33 @@ class DistributedOptimizer(MixedPrecisionOptimizer):
         data_parallel_rank = mpu.get_data_parallel_rank()
         data_parallel_group = mpu.get_data_parallel_group()
 
-        # All-gather updated main params.
-        # - All param buffer views are guaranteed to have the same num elements
-        #   across all data parallel ranks, due to grad buffer padding that is
-        #   done in distributed.py, and extended to the param buffers. Thus,
-        #   all sub-views will have consistent start/end indexes across data
-        #   parallel ranks.
+        try:
+            from megatron.profiler import hops_profiler
+            torch.cuda.synchronize()
+            hops_profiler.start("Main_AllGather_Wait")
+        except: pass
+
         pbuf_view_items = self.get_model_param_buffer_dp_views()
-        total_size_MB=0
+        total_size_MB = 0
         for index, (model_index, dtype, pbuf, pbuf_views) \
                 in enumerate(pbuf_view_items):
-            size_MB = pbuf_views[data_parallel_rank].numel() * pbuf_views[data_parallel_rank].element_size() / (1024**2)  # 转换为 MB
-            
-            try:
-                from megatron.profiler import hops_profiler
-                if "DP_AllGather_Payload_MB" not in hops_profiler.stats:
-                     hops_profiler.stats["DP_AllGather_Payload_MB"] = {"count": 1, "total_ms": size_MB}
-            except:
-                pass
-
+            size_MB = pbuf_views[data_parallel_rank].numel() * pbuf_views[data_parallel_rank].element_size() / (1024**2)
             torch.distributed._all_gather_base(
                 pbuf,
                 pbuf_views[data_parallel_rank],
                 group=data_parallel_group,
             )
             total_size_MB += size_MB
-    
-        rank = torch.distributed.get_rank()
-        if rank==0:
-            comm_counter1=Comm_counter()
-            comm_counter1.add_all_gather_tensor_total_size_MB(total_size_MB)
-            comm_counter1.set_all_gather_tensor_shape(pbuf_views[data_parallel_rank].shape)
+
+        try:
+            torch.cuda.synchronize()
+            hops_profiler.stop("Main_AllGather_Wait")
+            hops_profiler.stats["DP_AllGather_Payload"] = {
+                "size_mb": total_size_MB,
+                "ranks": list(torch.distributed.get_process_group_ranks(data_parallel_group)) if hasattr(torch.distributed, 'get_process_group_ranks') else []
+            }
+        except:
+            pass
 
         # Copy from param buffer to each param.
         for model_id, model in enumerate(self.models):

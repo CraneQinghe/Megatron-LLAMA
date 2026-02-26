@@ -10,7 +10,6 @@ import time
 _TRAIN_START_TIME = time.time()
 import torch
 import os
-from megatron.comm_counter import Comm_counter
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
 from megatron import get_args
@@ -772,12 +771,6 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             prof.start()
         if iteration > 20 and iteration<=27:
             prof.step()
-        rank = torch.distributed.get_rank()
-        if rank==0:
-            comm_counter1=Comm_counter()
-            comm_counter1.set_iteration(iteration)
-            if iteration==10:
-                comm_counter1.dump()
 
         update_num_microbatches(args.consumed_train_samples)
         args.curr_iteration = iteration
