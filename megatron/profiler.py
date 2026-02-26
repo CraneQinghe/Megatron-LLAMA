@@ -235,13 +235,16 @@ class HopsProfiler:
                     res_shapes[k.replace("Shape_Tracer_", "")] = shape_data
             elif k in static_keys:
                 res[k] = v["total_ms"]
-            else:
+            elif isinstance(v, dict) and "total_ms" in v and "count" in v:
                 avg_time = v["total_ms"] / v["count"] if v["count"] else 0
                 res[k] = {
                     "count": v["count"],
                     "total_time_ms": v["total_ms"],
                     "avg_time_ms": avg_time
                 }
+            else:
+                # Custom metadata/payload or unrecognized format
+                res[k] = v
             
         # 尝试动态获取全局配置并加上 Rank 专属标志避免覆写
         topo_suffix = ""
