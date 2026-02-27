@@ -29,7 +29,9 @@ def load(args):
 
     # Build path
     srcpath = pathlib.Path(__file__).parent.absolute()
-    buildpath = srcpath / 'build'
+    # Add NODE_RANK to build path to prevent NFS locking conflicts across nodes
+    node_id = os.environ.get("NODE_RANK", "0")
+    buildpath = srcpath / f'build_{node_id}'
     _create_build_dir(buildpath)
 
     # Helper function to build the kernels.

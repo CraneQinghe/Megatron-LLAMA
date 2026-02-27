@@ -123,8 +123,8 @@ def _compile_dependencies():
                   ' fused softmax kernel are not met. We default'
                   ' back to unfused kernel invocations.', flush=True)
     
-    # Always build on rank zero first.
-    if torch.distributed.get_rank() == 0:
+    # Always build on local rank zero first per node.
+    if args.local_rank == 0:
         start_time = time.time()
         print('> compiling and loading fused kernels ...', flush=True)
         fused_kernels.load(args)
