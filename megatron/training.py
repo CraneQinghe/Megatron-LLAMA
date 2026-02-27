@@ -410,11 +410,20 @@ def train_step(forward_step_func, data_iterator,
     args = get_args()
     timers = get_timers()
 
+    try:
+        from megatron.profiler import hops_profiler
+        hops_profiler.start("Optimizer_Zero_Grad")
+    except:
+        pass
     # Set grad to zero.
     if args.DDP_impl == 'local' and args.use_contiguous_buffers_in_local_ddp:
         for partition in model:
             partition.zero_grad_buffer()
     optimizer.zero_grad()
+    try:
+        hops_profiler.stop("Optimizer_Zero_Grad")
+    except:
+        pass
 
     # Forward pass.
     timers('forward-backward', log_level=1).start(
@@ -424,6 +433,10 @@ def train_step(forward_step_func, data_iterator,
     optimizer_for_forward_backward_func = \
         optimizer if args.overlapped_distributed_optimizer \
         else None
+    try:
+        hops_profiler.start("Forward_Backward_Pipeline")
+    except:
+        pass
     losses_reduced = forward_backward_func(
         forward_step_func=forward_step_func,
         data_iterator=data_iterator,
@@ -437,6 +450,10 @@ def train_step(forward_step_func, data_iterator,
         timers=fwd_bwd_timers,
         optimizer=optimizer_for_forward_backward_func)
     timers('forward-backward').stop()
+    try:
+        hops_profiler.stop("Forward_Backward_Pipeline")
+    except:
+        pass
 
     # Empty unused memory.
     if args.empty_unused_memory_level >= 1:
@@ -446,7 +463,12 @@ def train_step(forward_step_func, data_iterator,
     try:
         from megatron.profiler import hops_profiler
         import torch.distributed as dist
+        
+        # 显式测算这部分同步的耗时（这通常是上一步留下的长尾或 bubbles 积累导致的等待）
+        hops_profiler.start("Backward_Tail_Wait_Sync")
         torch.cuda.synchronize() # 强制同步，排除 Backward 尾部干扰
+        hops_profiler.stop("Backward_Tail_Wait_Sync")
+        
         hops_profiler.start("DP_Global_Sync_Barrier")
         dist.barrier()
         hops_profiler.stop("DP_Global_Sync_Barrier")
@@ -468,9 +490,18 @@ def train_step(forward_step_func, data_iterator,
 
     # Vision gradients.
     if args.vision_pretraining and args.vision_pretraining_type == "dino":
+        try:
+            from megatron.profiler import hops_profiler
+            hops_profiler.start("Cancel_Gradients_Vision")
+        except:
+            pass
         unwrapped_model = unwrap_model(model[0],
                                        (torchDDP, LocalDDP, Float16Module))
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
+        try:
+            hops_profiler.stop("Cancel_Gradients_Vision")
+        except:
+            pass
 
     # Update parameters.
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)

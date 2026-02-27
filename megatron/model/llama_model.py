@@ -107,7 +107,21 @@ class LLaMAModel(MegatronModule):
 
     def _causal_lm_process(self, lm_output, labels):
         if self.sequence_parallel:
+            try:
+                from megatron.profiler import hops_profiler
+                import torch
+                hops_profiler.start("Logits_SP_Gather_Forward")
+            except:
+                pass
+            
             lm_output = tensor_parallel.gather_from_sequence_parallel_region(lm_output, False)
+            
+            try:
+                torch.cuda.synchronize()
+                hops_profiler.stop("Logits_SP_Gather_Forward")
+            except:
+                pass
+                
         lm_output = lm_output.transpose(0, 1)
         logits = self.lm_head(lm_output)
 
