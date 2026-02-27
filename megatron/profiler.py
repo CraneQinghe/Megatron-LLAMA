@@ -266,6 +266,7 @@ class HopsProfiler:
         # 尝试动态获取全局配置并加上 Rank 专属标志避免覆写
         topo_suffix = ""
         rank_suffix = ""
+        rank = 0
         try:
             from megatron import get_args
             args = get_args()
@@ -277,13 +278,18 @@ class HopsProfiler:
                 world_size = dist.get_world_size()
                 # Use standard calc just in case DP size attribute is missing
                 dp_size = world_size // (tp_size * pp_size)
+                rank = dist.get_rank()
                 
             topo_suffix = f"_dp{dp_size}_tp{tp_size}_pp{pp_size}"
             
             if dist.is_initialized():
                 rank_suffix = f"_rank{rank}"
         except Exception:
-            pass
+            try:
+                if dist.is_initialized():
+                    rank = dist.get_rank()
+            except:
+                pass
             
         file_name = f"hops_profiling_results{topo_suffix}{rank_suffix}.json"
         
