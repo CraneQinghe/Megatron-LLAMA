@@ -194,6 +194,19 @@ class HopsProfiler:
             # Fully Non-blocking: just record events to not affect system dynamics
             if not is_warmup:
                 self.async_events_to_measure.append((real_name, start_evt, end_evt))
+                
+                # IMPORTANT FIX: Periodically flush CUDA events to prevent Event Pool Exhaustion!
+                # Holding tens of thousands of torch.cuda.Event objects will hit hardware limits 
+                # and trigger massive implicit syncs / freezing (~98s hangs).
+                if len(self.async_events_to_measure) > 5000:
+                    torch.cuda.synchronize()
+                    for n, s_evt, e_evt in self.async_events_to_measure:
+                        elapsed = s_evt.elapsed_time(e_evt)
+                        if n not in self.stats:
+                            self.stats[n] = {"count": 0, "total_ms": 0.0}
+                        self.stats[n]["count"] += 1
+                        self.stats[n]["total_ms"] += elapsed
+                    self.async_events_to_measure.clear()
 
     def dump(self):
         if hasattr(self, '_has_dumped') and self._has_dumped:
