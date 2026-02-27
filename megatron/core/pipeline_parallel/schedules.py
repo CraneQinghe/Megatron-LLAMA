@@ -353,30 +353,84 @@ def forward_backward_no_pipelining(*,
 
     model_type = get_model_type(model)
 
+    from megatron.profiler import hops_profiler
+    import torch
+    
     forward_data_store = []
     input_tensor, output_tensor_grad = None, None
     with no_sync_func():
         for i in range(num_microbatches - 1):
+            try:
+                torch.cuda.synchronize()
+                hops_profiler.start("Microbatch_Forward_Step")
+            except: pass
             output_tensor = forward_step(forward_step_func, data_iterator,
                                          model, num_microbatches, input_tensor, forward_data_store,
                                          timers, collect_non_loss_data, dtype, enable_autocast)
+            try:
+                torch.cuda.synchronize()
+                hops_profiler.stop("Microbatch_Forward_Step")
+            except: pass
+            
             if not forward_only:
+                try:
+                    torch.cuda.synchronize()
+                    hops_profiler.start("Microbatch_Backward_Step")
+                except: pass
                 backward_step(grad_scaler, input_tensor, output_tensor,
                               output_tensor_grad, model_type, timers, deallocate_pipeline_outputs)
+                try:
+                    torch.cuda.synchronize()
+                    hops_profiler.stop("Microbatch_Backward_Step")
+                except: pass
+                
                 if optimizer is not None:
+                    try:
+                        torch.cuda.synchronize()
+                        hops_profiler.start("Optimizer_Backward_Epilogue_NoSync")
+                    except: pass
                     optimizer.backward_epilogue()
+                    try:
+                        torch.cuda.synchronize()
+                        hops_profiler.stop("Optimizer_Backward_Epilogue_NoSync")
+                    except: pass
 
     # Run computation for last microbatch out of context handler (want to
     # synchronize gradients).
+    try:
+        torch.cuda.synchronize()
+        hops_profiler.start("Microbatch_Forward_Step_Last")
+    except: pass
     output_tensor = forward_step(forward_step_func, data_iterator,
                                  model, num_microbatches, input_tensor, forward_data_store,
                                  timers, collect_non_loss_data, dtype, enable_autocast)
+    try:
+        torch.cuda.synchronize()
+        hops_profiler.stop("Microbatch_Forward_Step_Last")
+    except: pass
 
     if not forward_only:
+        try:
+            torch.cuda.synchronize()
+            hops_profiler.start("Microbatch_Backward_Step_Last")
+        except: pass
         backward_step(grad_scaler, input_tensor, output_tensor,
                       output_tensor_grad, model_type, timers, deallocate_pipeline_outputs)
+        try:
+            torch.cuda.synchronize()
+            hops_profiler.stop("Microbatch_Backward_Step_Last")
+        except: pass
+        
         if optimizer is not None:
+            try:
+                torch.cuda.synchronize()
+                hops_profiler.start("Optimizer_Backward_Epilogue_Sync")
+            except: pass
             optimizer.backward_epilogue()
+            try:
+                torch.cuda.synchronize()
+                hops_profiler.stop("Optimizer_Backward_Epilogue_Sync")
+            except: pass
 
     return forward_data_store
 
