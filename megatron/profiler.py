@@ -187,9 +187,10 @@ class HopsProfiler:
             elapsed = start_evt.elapsed_time(end_evt)
             if not is_warmup:
                 if real_name not in self.stats:
-                    self.stats[real_name] = {"count": 0, "total_ms": 0.0}
+                    self.stats[real_name] = {"count": 0, "total_ms": 0.0, "all_ms": []}
                 self.stats[real_name]["count"] += 1
                 self.stats[real_name]["total_ms"] += elapsed
+                self.stats[real_name]["all_ms"].append(elapsed)
         else:
             # Fully Non-blocking: just record events to not affect system dynamics
             if not is_warmup:
@@ -203,9 +204,10 @@ class HopsProfiler:
                     for n, s_evt, e_evt in self.async_events_to_measure:
                         elapsed = s_evt.elapsed_time(e_evt)
                         if n not in self.stats:
-                            self.stats[n] = {"count": 0, "total_ms": 0.0}
+                            self.stats[n] = {"count": 0, "total_ms": 0.0, "all_ms": []}
                         self.stats[n]["count"] += 1
                         self.stats[n]["total_ms"] += elapsed
+                        self.stats[n]["all_ms"].append(elapsed)
                     self.async_events_to_measure.clear()
 
     def dump(self):
@@ -219,9 +221,10 @@ class HopsProfiler:
             for n, s_evt, e_evt in self.async_events_to_measure:
                 elapsed = s_evt.elapsed_time(e_evt)
                 if n not in self.stats:
-                    self.stats[n] = {"count": 0, "total_ms": 0.0}
+                    self.stats[n] = {"count": 0, "total_ms": 0.0, "all_ms": []}
                 self.stats[n]["count"] += 1
                 self.stats[n]["total_ms"] += elapsed
+                self.stats[n]["all_ms"].append(elapsed)
             self.async_events_to_measure.clear() # Prevent dual counting if dump() called multiple times
 
         if not self.stats:
@@ -253,7 +256,8 @@ class HopsProfiler:
                 res[k] = {
                     "count": v["count"],
                     "total_time_ms": v["total_ms"],
-                    "avg_time_ms": avg_time
+                    "avg_time_ms": avg_time,
+                    "all_ms": v.get("all_ms", [])
                 }
             else:
                 # Custom metadata/payload or unrecognized format
@@ -277,17 +281,19 @@ class HopsProfiler:
             topo_suffix = f"_dp{dp_size}_tp{tp_size}_pp{pp_size}"
             
             if dist.is_initialized():
-                rank_suffix = f"_rank{dist.get_rank()}"
+                rank_suffix = f"_rank{rank}"
         except Exception:
             pass
             
-        out_file = os.path.join(os.getcwd(), f"hops_profiling_results{topo_suffix}{rank_suffix}.json")
-        try:
-            with open(out_file, "w") as f:
-                json.dump(res, f, indent=4)
-            print(f"\n[HopsProfiler] Successfully exported profiling stats to {out_file}", flush=True)
-        except Exception as e:
-            print(f"[HopsProfiler] Failed to write profile: {e}", flush=True)
+        file_name = f"hops_profiling_results{topo_suffix}{rank_suffix}.json"
+        
+        if rank == 0:
+            try:
+                with open(os.path.join(os.getcwd(), file_name), "w") as f:
+                    json.dump(res, f, indent=4)
+                print(f"\n[HopsProfiler] Successfully exported profiling stats to {file_name}", flush=True)
+            except Exception as e:
+                print(f"[HopsProfiler] Failed to write profile: {e}", flush=True)
 
 hops_profiler = HopsProfiler()
 
