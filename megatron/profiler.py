@@ -286,9 +286,10 @@ class HopsProfiler:
                 opt_m_bytes = 0
                 opt_v_bytes = 0
                 master_weight_bytes = 0
+                main_grad_bytes = 0
                 
                 for obj in gc.get_objects():
-                    if type(obj).__name__ == "Float16OptimizerWithFloat16Params" or type(obj).__name__ == "DistributedOptimizer":
+                    if type(obj).__name__ == "Float16OptimizerWithFloat16Params" or type(obj).__name__ == "DistributedOptimizer" or type(obj).__name__ == "OverlappedDistributedOptimizer":
                         # We found the megatron optimizer
                         if hasattr(obj, 'optimizer') and hasattr(obj.optimizer, 'state'):
                             for param, state_dict in obj.optimizer.state.items():
@@ -297,17 +298,29 @@ class HopsProfiler:
                                 if 'exp_avg_sq' in state_dict: # Adam V
                                     opt_v_bytes += state_dict['exp_avg_sq'].numel() * state_dict['exp_avg_sq'].element_size()
                         
+                        fp32_groups = None
                         if hasattr(obj, 'fp32_from_fp16_params'):
-                            for fp32_group in obj.fp32_from_fp16_params:
+                            fp32_groups = obj.fp32_from_fp16_params
+                        elif hasattr(obj, 'fp32_from_float16_groups'):
+                            fp32_groups = obj.fp32_from_float16_groups
+                        
+                        if fp32_groups:
+                            for fp32_group in fp32_groups:
                                 for fp32_p in fp32_group:
                                     master_weight_bytes += fp32_p.numel() * fp32_p.element_size()
-                
+                                    
+                        # Megatron's DistributedOptimizer caches the huge continuous buffers inside model.main_grad or self.model_gbuf_ranges
+                        if hasattr(obj, 'buffers') and isinstance(obj.buffers, list):
+                            for b in obj.buffers:
+                                if hasattr(b, 'numel'):
+                                    main_grad_bytes += b.numel() * b.element_size()
+                                    
                 res["Actual_Captured_Master_Weight_MB"] = master_weight_bytes / (1024 * 1024)
                 res["Actual_Captured_Adam_M_MB"] = opt_m_bytes / (1024 * 1024)
                 res["Actual_Captured_Adam_V_MB"] = opt_v_bytes / (1024 * 1024)
+                res["Actual_Captured_Main_Grad_Mem_MB"] = main_grad_bytes / (1024 * 1024)
             except Exception as e:
                 print(f"[HopsProfiler] Explicit memory lookup failed: {e}", flush=True)
-                pass
         else:
             res["System_Max_Memory_Allocated_MB"] = 0.0
             res["System_Current_Memory_Allocated_MB"] = 0.0
