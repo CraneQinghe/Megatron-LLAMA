@@ -33,6 +33,7 @@ class HopsProfiler:
         
         # We need to explicitly isolate the parameters to extrapolate full model DP cost
         vocab_emb_params = 0
+        vocab_head_params = 0
         layer_params = 0
         other_params = 0
         total_params = 0
@@ -47,8 +48,10 @@ class HopsProfiler:
                 param_bytes = p.element_size() # Extract real byte size of the parameter
                 
                 # Check naming convention inside Megatron for word embeddings and the output layer
-                if 'word_embeddings' in name or 'position_embeddings' in name or 'final_layernorm' in name or "lm_head" in name in name:
+                if 'word_embeddings' in name or 'position_embeddings' in name:
                     vocab_emb_params += num_params
+                elif 'final_layernorm' in name or "lm_head" in name in name:
+                    vocab_head_params += num_params
                 elif 'layers.0.' in name:
                     layer_params += num_params
                 else: 
@@ -59,8 +62,9 @@ class HopsProfiler:
 
         self.stats["Model_Grad_Params_Total"] = {"count": 1, "total_ms": total_params}
         self.stats["Model_Grad_Params_Total_MB"] = {"count": 1, "total_ms": total_params * param_bytes / (1024**2)}
-        self.stats["Model_Grad_Params_Embedding_And_Head"] = {"count": 1, "total_ms": vocab_emb_params}
-        self.stats["Model_Grad_Params_Embedding_And_Head_MB"] = {"count": 1, "total_ms": vocab_emb_params * param_bytes / (1024**2)}
+        self.stats["Model_Grad_Params_Embedding_MB"] = {"count": 1, "total_ms": vocab_emb_params * param_bytes / (1024**2)}
+        self.stats["Model_Grad_Params_Head_MB"] = {"count": 1, "total_ms": vocab_head_params * param_bytes / (1024**2)}
+        self.stats["Model_Grad_Params_Embedding_And_Head_MB"] = {"count": 1, "total_ms": (vocab_emb_params + vocab_head_params) * param_bytes / (1024**2)}
         self.stats["Model_Grad_Params_Single_Layer"] = {"count": 1, "total_ms": layer_params}
         self.stats["Model_Grad_Params_Single_Layer_MB"] = {"count": 1, "total_ms": layer_params * param_bytes / (1024**2)}
         self.stats["Param_Size_Bytes"] = {"count": 1, "total_ms": param_bytes}
@@ -260,7 +264,8 @@ class HopsProfiler:
         res_shapes = {}
         static_keys = [
             "Model_Grad_Params_Total", "Model_Grad_Params_Total_MB",
-            "Model_Grad_Params_Embedding_And_Head", "Model_Grad_Params_Embedding_And_Head_MB", 
+            "Model_Grad_Params_Embedding_MB", "Model_Grad_Params_Head_MB", 
+            "Model_Grad_Params_Embedding_And_Head_MB", 
             "Model_Grad_Params_Single_Layer", "Model_Grad_Params_Single_Layer_MB",
             "Param_Size_Bytes", "Reduce_Bucket_Size_MB"
         ]
@@ -269,9 +274,45 @@ class HopsProfiler:
         if torch.cuda.is_available():
             res["System_Max_Memory_Allocated_MB"] = torch.cuda.max_memory_allocated() / (1024 * 1024)
             res["System_Current_Memory_Allocated_MB"] = torch.cuda.memory_allocated() / (1024 * 1024)
+            res["System_Peak_Memory_Allocated_MB_True"] = torch.cuda.max_memory_allocated() / (1024 * 1024)
+            # Find the actual Optimizer State via inspection
+            try:
+                import megatron.core.parallel_state as ps
+                from megatron import get_args
+                import gc
+                args = get_args()
+                
+                # We can trace memory specifically by looking through garbage collector for Optimizers
+                opt_m_bytes = 0
+                opt_v_bytes = 0
+                master_weight_bytes = 0
+                
+                for obj in gc.get_objects():
+                    if type(obj).__name__ == "Float16OptimizerWithFloat16Params" or type(obj).__name__ == "DistributedOptimizer":
+                        # We found the megatron optimizer
+                        if hasattr(obj, 'optimizer') and hasattr(obj.optimizer, 'state'):
+                            for param, state_dict in obj.optimizer.state.items():
+                                if 'exp_avg' in state_dict: # Adam M
+                                    opt_m_bytes += state_dict['exp_avg'].numel() * state_dict['exp_avg'].element_size()
+                                if 'exp_avg_sq' in state_dict: # Adam V
+                                    opt_v_bytes += state_dict['exp_avg_sq'].numel() * state_dict['exp_avg_sq'].element_size()
+                        
+                        if hasattr(obj, 'fp32_from_fp16_params'):
+                            for fp32_group in obj.fp32_from_fp16_params:
+                                for fp32_p in fp32_group:
+                                    master_weight_bytes += fp32_p.numel() * fp32_p.element_size()
+                
+                res["Actual_Captured_Master_Weight_MB"] = master_weight_bytes / (1024 * 1024)
+                res["Actual_Captured_Adam_M_MB"] = opt_m_bytes / (1024 * 1024)
+                res["Actual_Captured_Adam_V_MB"] = opt_v_bytes / (1024 * 1024)
+            except Exception as e:
+                print(f"[HopsProfiler] Explicit memory lookup failed: {e}", flush=True)
+                pass
         else:
             res["System_Max_Memory_Allocated_MB"] = 0.0
             res["System_Current_Memory_Allocated_MB"] = 0.0
+            res["System_Peak_Memory_Allocated_MB_True"] = 0.0
+            
         for k, v in self.stats.items():
             if "Shape_Tracer_" in k:
                 if "Sequential_Flow" in v:
