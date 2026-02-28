@@ -179,7 +179,7 @@ class HopsProfiler:
         end_evt = torch.cuda.Event(enable_timing=True)
         end_evt.record()
 
-        is_warmup = self.layer_fwds_started <= 40
+        is_warmup = self.layer_fwds_started <= 5
 
         if self.detailed_profiling_enabled:
             # Force serialization and calculate locally to simulate the sync overhead
