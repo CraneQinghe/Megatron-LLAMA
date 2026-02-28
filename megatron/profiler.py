@@ -158,7 +158,7 @@ class HopsProfiler:
 
         start_evt = torch.cuda.Event(enable_timing=True)
         start_evt.record()
-        start_mem = torch.cuda.memory_allocated() / (1024 * 1024)
+        start_mem = torch.cuda.memory_allocated() / (1024 * 1024) if torch.cuda.is_available() else 0
         self.events[real_name] = (start_evt, start_mem)
 
     def stop(self, name):
@@ -183,7 +183,7 @@ class HopsProfiler:
         start_evt, start_mem = self.events.pop(real_name)
         end_evt = torch.cuda.Event(enable_timing=True)
         end_evt.record()
-        end_mem = torch.cuda.memory_allocated() / (1024 * 1024)
+        end_mem = torch.cuda.memory_allocated() / (1024 * 1024) if torch.cuda.is_available() else 0
         mem_diff = end_mem - start_mem
 
         is_warmup = self.iters_recorded < 2
