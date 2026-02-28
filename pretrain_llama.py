@@ -76,33 +76,14 @@ def forward_step(data_iterator, model):
     args = get_args()
     timers = get_timers()
 
-    try:
-        from megatron.profiler import hops_profiler
-        import torch
-        torch.cuda.synchronize()
-        hops_profiler.start("Microbatch_Data_Loader")
-    except: pass
-
     # Get the batch.
     timers('batch-generator', log_level=2).start()
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
     timers('batch-generator').stop()
 
-    try:
-        torch.cuda.synchronize()
-        hops_profiler.stop("Microbatch_Data_Loader")
-        torch.cuda.synchronize()
-        hops_profiler.start("Microbatch_Model_Forward")
-    except: pass
-
     output_tensor = model(tokens, position_ids, attention_mask,
                           labels=labels)
-
-    try:
-        torch.cuda.synchronize()
-        hops_profiler.stop("Microbatch_Model_Forward")
-    except: pass
 
     return output_tensor, partial(loss_func, loss_mask)
 

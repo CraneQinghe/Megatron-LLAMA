@@ -158,7 +158,8 @@ class HopsProfiler:
 
         start_evt = torch.cuda.Event(enable_timing=True)
         start_evt.record()
-        self.events[real_name] = start_evt
+        start_mem = torch.cuda.memory_allocated() / (1024 * 1024)
+        self.events[real_name] = (start_evt, start_mem)
 
     def stop(self, name):
         if not self.enabled: return
@@ -179,9 +180,11 @@ class HopsProfiler:
         if real_name not in self.events:
             return
         
-        start_evt = self.events.pop(real_name)
+        start_evt, start_mem = self.events.pop(real_name)
         end_evt = torch.cuda.Event(enable_timing=True)
         end_evt.record()
+        end_mem = torch.cuda.memory_allocated() / (1024 * 1024)
+        mem_diff = end_mem - start_mem
 
         is_warmup = self.iters_recorded < 2
         is_bypassed = self.iters_recorded >= 6
@@ -201,29 +204,31 @@ class HopsProfiler:
             elapsed = start_evt.elapsed_time(end_evt)
             
             # Record if it's an Iteration stat (always), or if it's a normal stat inside the profiled window
-            if real_name == "Iteration" or (not is_warmup and not is_bypassed):
+            if real_name == "Iteration" or real_name == "Optimizer_Step" or (not is_warmup and not is_bypassed):
                 if final_name not in self.stats:
-                    self.stats[final_name] = {"count": 0, "total_ms": 0.0, "all_ms": []}
+                    self.stats[final_name] = {"count": 0, "total_ms": 0.0, "all_ms": [], "all_mem_mb": []}
                 self.stats[final_name]["count"] += 1
                 self.stats[final_name]["total_ms"] += elapsed
                 self.stats[final_name]["all_ms"].append(elapsed)
+                self.stats[final_name]["all_mem_mb"].append(mem_diff)
         else:
             # Fully Non-blocking: just record events to not affect system dynamics
-            if not is_warmup and not is_bypassed:
-                self.async_events_to_measure.append((real_name, start_evt, end_evt))
+            if real_name == "Optimizer_Step" or (not is_warmup and not is_bypassed):
+                self.async_events_to_measure.append((real_name, start_evt, end_evt, mem_diff))
                 
                 # IMPORTANT FIX: Periodically flush CUDA events to prevent Event Pool Exhaustion!
                 # Holding tens of thousands of torch.cuda.Event objects will hit hardware limits 
                 # and trigger massive implicit syncs / freezing (~98s hangs).
                 if len(self.async_events_to_measure) > 5000:
                     torch.cuda.synchronize()
-                    for n, s_evt, e_evt in self.async_events_to_measure:
+                    for n, s_evt, e_evt, m_diff in self.async_events_to_measure:
                         elapsed = s_evt.elapsed_time(e_evt)
                         if n not in self.stats:
-                            self.stats[n] = {"count": 0, "total_ms": 0.0, "all_ms": []}
+                            self.stats[n] = {"count": 0, "total_ms": 0.0, "all_ms": [], "all_mem_mb": []}
                         self.stats[n]["count"] += 1
                         self.stats[n]["total_ms"] += elapsed
                         self.stats[n]["all_ms"].append(elapsed)
+                        self.stats[n]["all_mem_mb"].append(m_diff)
                     self.async_events_to_measure.clear()
                     
         if real_name == "Iteration":
@@ -237,13 +242,14 @@ class HopsProfiler:
 
         if self.async_events_to_measure:
             torch.cuda.synchronize()
-            for n, s_evt, e_evt in self.async_events_to_measure:
+            for n, s_evt, e_evt, m_diff in self.async_events_to_measure:
                 elapsed = s_evt.elapsed_time(e_evt)
                 if n not in self.stats:
-                    self.stats[n] = {"count": 0, "total_ms": 0.0, "all_ms": []}
+                    self.stats[n] = {"count": 0, "total_ms": 0.0, "all_ms": [], "all_mem_mb": []}
                 self.stats[n]["count"] += 1
                 self.stats[n]["total_ms"] += elapsed
                 self.stats[n]["all_ms"].append(elapsed)
+                self.stats[n]["all_mem_mb"].append(m_diff)
             self.async_events_to_measure.clear() # Prevent dual counting if dump() called multiple times
 
         if not self.stats:
@@ -276,7 +282,9 @@ class HopsProfiler:
                     "count": v["count"],
                     "total_time_ms": v["total_ms"],
                     "avg_time_ms": avg_time,
-                    "all_ms": v.get("all_ms", [])
+                    "avg_mem_mb": sum(v.get("all_mem_mb", [0])) / len(v.get("all_mem_mb", [1])) if v.get("all_mem_mb") else 0.0,
+                    "all_ms": v.get("all_ms", []),
+                    "all_mem_mb": v.get("all_mem_mb", [])
                 }
             else:
                 # Custom metadata/payload or unrecognized format
@@ -310,15 +318,25 @@ class HopsProfiler:
             except:
                 pass
             
-        file_name = f"hops_profiling_dynamic_window{topo_suffix}{rank_suffix}.json"
+        file_name = f"/data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/examples/LLaMA/hops_profiling_results{topo_suffix}{rank_suffix}.json"
         
         if rank == 0:
             try:
-                with open(os.path.join(os.getcwd(), file_name), "w") as f:
+                os.makedirs(os.path.dirname(file_name), exist_ok=True)
+            except: pass
+            try:
+                with open(file_name, "w") as f:
                     json.dump(res, f, indent=4)
                 print(f"\n[HopsProfiler] Successfully exported profiling stats to {file_name}", flush=True)
             except Exception as e:
-                print(f"[HopsProfiler] Failed to write profile: {e}", flush=True)
+                # Fallback to current directory
+                fallback_name = f"hops_profiling_results{topo_suffix}{rank_suffix}.json"
+                try:
+                    with open(os.path.join(os.getcwd(), fallback_name), "w") as f2:
+                        json.dump(res, f2, indent=4)
+                    print(f"\n[HopsProfiler] Successfully exported profiling stats to fallback: {fallback_name}", flush=True)
+                except Exception as e:
+                    print(f"[HopsProfiler] Failed to write profile: {e}", flush=True)
 
 hops_profiler = HopsProfiler()
 
