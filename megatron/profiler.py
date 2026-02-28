@@ -264,6 +264,14 @@ class HopsProfiler:
             "Model_Grad_Params_Single_Layer", "Model_Grad_Params_Single_Layer_MB",
             "Param_Size_Bytes", "Reduce_Bucket_Size_MB"
         ]
+        
+        # Add macro memory tracking
+        if torch.cuda.is_available():
+            res["System_Max_Memory_Allocated_MB"] = torch.cuda.max_memory_allocated() / (1024 * 1024)
+            res["System_Current_Memory_Allocated_MB"] = torch.cuda.memory_allocated() / (1024 * 1024)
+        else:
+            res["System_Max_Memory_Allocated_MB"] = 0.0
+            res["System_Current_Memory_Allocated_MB"] = 0.0
         for k, v in self.stats.items():
             if "Shape_Tracer_" in k:
                 if "Sequential_Flow" in v:
