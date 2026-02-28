@@ -381,8 +381,9 @@ class HopsProfiler:
                 pass
             
         file_name = f"/data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/examples/LLaMA/hops_profiling_results{topo_suffix}{rank_suffix}.json"
-        
-        if rank == 0:
+        # We purposely dump for ALL ranks to capture rank-specific memory imbalances
+        # like PP staging allocations and logits distribution.
+        if True:
             try:
                 os.makedirs(os.path.dirname(file_name), exist_ok=True)
             except: pass
