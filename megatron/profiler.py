@@ -18,6 +18,7 @@ class HopsProfiler:
         self.stats = {}
         self.enabled = True
         self.layer_fwds_started = 0
+        self.iters_recorded = 0
         self.detailed_profiling_enabled = True
         self.async_events_to_measure = []
         self.heartbeat_layer_name = None
@@ -148,6 +149,9 @@ class HopsProfiler:
         if not self.detailed_profiling_enabled and not is_layer_total and name != "Iteration":
             return
 
+        if getattr(self, 'iters_recorded', 0) >= 6 and name != "Iteration":
+            return
+            
         real_name = name
         if is_layer_total:
             real_name = name + ("_Detailed" if self.detailed_profiling_enabled else "_NoSync")
@@ -179,21 +183,33 @@ class HopsProfiler:
         end_evt = torch.cuda.Event(enable_timing=True)
         end_evt.record()
 
-        is_warmup = self.layer_fwds_started <= 5
+        is_warmup = self.iters_recorded < 2
+        is_bypassed = self.iters_recorded >= 6
+        
+        final_name = real_name
+        if real_name == "Iteration":
+            if is_bypassed:
+                final_name = "Iteration_Unprofiled"
+            elif is_warmup:
+                final_name = "Iteration_Warmup"
+            else:
+                final_name = "Iteration_Profiled"
 
-        if self.detailed_profiling_enabled:
+        if self.detailed_profiling_enabled or real_name == "Iteration":
             # Force serialization and calculate locally to simulate the sync overhead
             torch.cuda.synchronize()
             elapsed = start_evt.elapsed_time(end_evt)
-            if not is_warmup:
-                if real_name not in self.stats:
-                    self.stats[real_name] = {"count": 0, "total_ms": 0.0, "all_ms": []}
-                self.stats[real_name]["count"] += 1
-                self.stats[real_name]["total_ms"] += elapsed
-                self.stats[real_name]["all_ms"].append(elapsed)
+            
+            # Record if it's an Iteration stat (always), or if it's a normal stat inside the profiled window
+            if real_name == "Iteration" or (not is_warmup and not is_bypassed):
+                if final_name not in self.stats:
+                    self.stats[final_name] = {"count": 0, "total_ms": 0.0, "all_ms": []}
+                self.stats[final_name]["count"] += 1
+                self.stats[final_name]["total_ms"] += elapsed
+                self.stats[final_name]["all_ms"].append(elapsed)
         else:
             # Fully Non-blocking: just record events to not affect system dynamics
-            if not is_warmup:
+            if not is_warmup and not is_bypassed:
                 self.async_events_to_measure.append((real_name, start_evt, end_evt))
                 
                 # IMPORTANT FIX: Periodically flush CUDA events to prevent Event Pool Exhaustion!
@@ -209,6 +225,9 @@ class HopsProfiler:
                         self.stats[n]["total_ms"] += elapsed
                         self.stats[n]["all_ms"].append(elapsed)
                     self.async_events_to_measure.clear()
+                    
+        if real_name == "Iteration":
+            self.iters_recorded += 1
 
     def dump(self):
         if hasattr(self, '_has_dumped') and self._has_dumped:
@@ -291,7 +310,7 @@ class HopsProfiler:
             except:
                 pass
             
-        file_name = f"hops_profiling_results{topo_suffix}{rank_suffix}.json"
+        file_name = f"hops_profiling_dynamic_window{topo_suffix}{rank_suffix}.json"
         
         if rank == 0:
             try:
