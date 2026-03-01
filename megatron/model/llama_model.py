@@ -72,9 +72,16 @@ class LLaMAModel(MegatronModule):
             pre_process=self.pre_process,
             post_process=self.post_process)
         
+        from megatron.core import tensor_parallel
         self.causal_lm = args.causal_lm
         if self.causal_lm and self.post_process:
-            self.lm_head = torch.nn.Linear(args.hidden_size, args.padded_vocab_size, bias=False)
+            self.lm_head = tensor_parallel.ColumnParallelLinear(
+                args.hidden_size,
+                args.padded_vocab_size,
+                bias=False,
+                init_method=init_method_normal(args.init_method_std),
+                use_cpu_initialization=args.use_cpu_initialization,
+                perform_initialization=args.perform_initialization)
             
             # Register hooks to profile Logits compute
             def _fwd_pre(module, input):
