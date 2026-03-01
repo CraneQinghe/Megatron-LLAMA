@@ -22,7 +22,12 @@ class HopsProfiler:
         self.detailed_profiling_enabled = True
         self.async_events_to_measure = []
         self.heartbeat_layer_name = None
+        self.base_memory_mb = 0.0
         atexit.register(self.dump)
+
+    def record_base_memory(self):
+        if torch.cuda.is_available():
+            self.base_memory_mb = torch.cuda.memory_allocated() / (1024 * 1024)
 
     def record_model_info(self, model, args):
         # try:
@@ -50,9 +55,9 @@ class HopsProfiler:
                 # Check naming convention inside Megatron for word embeddings and the output layer
                 if 'word_embeddings' in name or 'position_embeddings' in name:
                     vocab_emb_params += num_params
-                elif 'final_layernorm' in name or "lm_head" in name in name:
+                elif 'lm_head' in name:
                     vocab_head_params += num_params
-                elif 'layers.0.' in name:
+                elif 'layers.' in name:
                     layer_params += num_params
                 else: 
                     # other residual logic parameters outside transformer loop
@@ -272,6 +277,7 @@ class HopsProfiler:
         
         # Add macro memory tracking
         if torch.cuda.is_available():
+            res["System_Base_Allocated_MB"] = getattr(self, "base_memory_mb", 0.0)
             res["System_Max_Memory_Allocated_MB"] = torch.cuda.max_memory_allocated() / (1024 * 1024)
             res["System_Current_Memory_Allocated_MB"] = torch.cuda.memory_allocated() / (1024 * 1024)
             res["System_Peak_Memory_Allocated_MB_True"] = torch.cuda.max_memory_allocated() / (1024 * 1024)
@@ -298,19 +304,31 @@ class HopsProfiler:
                                 if 'exp_avg_sq' in state_dict: # Adam V
                                     opt_v_bytes += state_dict['exp_avg_sq'].numel() * state_dict['exp_avg_sq'].element_size()
                         
-                        fp32_groups = None
-                        if hasattr(obj, 'fp32_from_fp16_params'):
-                            fp32_groups = obj.fp32_from_fp16_params
-                        elif hasattr(obj, 'fp32_from_float16_groups'):
-                            fp32_groups = obj.fp32_from_float16_groups
+                        fp32_groups = []
+                        for attr_name in ['fp32_from_fp16_params', 'fp32_from_float16_groups', 'shard_fp32_from_float16_groups', 'shard_fp32_groups']:
+                            if hasattr(obj, attr_name):
+                                groups = getattr(obj, attr_name)
+                                if groups:
+                                    fp32_groups.extend(groups)
                         
+                        seen_tensors = set()
                         if fp32_groups:
                             for fp32_group in fp32_groups:
-                                for fp32_p in fp32_group:
-                                    master_weight_bytes += fp32_p.numel() * fp32_p.element_size()
-                                    
+                                if isinstance(fp32_group, list) or isinstance(fp32_group, tuple):
+                                    for fp32_p in fp32_group:
+                                        if hasattr(fp32_p, 'numel') and id(fp32_p) not in seen_tensors:
+                                            master_weight_bytes += fp32_p.numel() * fp32_p.element_size()
+                                            seen_tensors.add(id(fp32_p))
+                                elif hasattr(fp32_group, 'numel') and id(fp32_group) not in seen_tensors:
+                                     master_weight_bytes += fp32_group.numel() * fp32_group.element_size()
+                                     seen_tensors.add(id(fp32_group))
                         # Megatron's DistributedOptimizer caches the huge continuous buffers inside model.main_grad or self.model_gbuf_ranges
-                        if hasattr(obj, 'buffers') and isinstance(obj.buffers, list):
+                        if hasattr(obj, 'models') and isinstance(obj.models, list):
+                            for m in obj.models:
+                                if hasattr(m, '_grad_buffers') and m._grad_buffers:
+                                    for dtype, gbuf in m._grad_buffers.items():
+                                        main_grad_bytes += gbuf.data.numel() * gbuf.data.element_size()
+                        elif hasattr(obj, 'buffers') and isinstance(obj.buffers, list):
                             for b in obj.buffers:
                                 if hasattr(b, 'numel'):
                                     main_grad_bytes += b.numel() * b.element_size()

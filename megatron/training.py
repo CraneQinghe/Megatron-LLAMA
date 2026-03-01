@@ -110,6 +110,12 @@ def pretrain(train_valid_test_dataset_provider,
 
     # Model, optimizer, and learning rate.
     timers('model-and-optimizer-setup', log_level=0).start(barrier=True)
+    try:
+        from megatron.profiler import hops_profiler
+        hops_profiler.record_base_memory()
+    except Exception as e:
+        print_rank_0(f"Skipping profiling base memory: {e}")
+        
     model, optimizer, opt_param_scheduler = setup_model_and_optimizer(
         model_provider, model_type)
     timers('model-and-optimizer-setup').stop()
