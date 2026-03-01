@@ -105,8 +105,8 @@ class LLaMAModel(MegatronModule):
             self.lm_head.register_full_backward_pre_hook(_bwd_pre)
             self.lm_head.register_full_backward_hook(_bwd_post)
 
-        if not args.untie_embeddings_and_output_weights:
-            self.initialize_word_embeddings(init_method_normal)
+        # if not args.untie_embeddings_and_output_weights:
+        #     self.initialize_word_embeddings(init_method_normal)
 
     def set_input_tensor(self, input_tensor):
         """See megatron.model.transformer.set_input_tensor()"""
