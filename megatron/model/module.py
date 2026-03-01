@@ -107,7 +107,10 @@ class MegatronModule(torch.nn.Module):
         # Ensure that first and last stages have the same initial parameter
         # values.
         if mpu.is_rank_in_embedding_group():
-            torch.distributed.all_reduce(self.word_embeddings_weight().data,
+            weight_data = self.word_embeddings_weight().data
+            if not weight_data.is_cuda:
+                weight_data = weight_data.cuda()
+            torch.distributed.all_reduce(weight_data,
                                          group=mpu.get_embedding_group())
 
         # Ensure that encoder(first stage) and decoder(split stage) position
