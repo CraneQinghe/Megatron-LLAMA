@@ -79,6 +79,7 @@ class LLaMAModel(MegatronModule):
                 args.hidden_size,
                 args.padded_vocab_size,
                 bias=False,
+                gather_output=not self.parallel_output,
                 init_method=init_method_normal(args.init_method_std),
                 use_cpu_initialization=args.use_cpu_initialization,
                 perform_initialization=args.perform_initialization)
@@ -130,7 +131,7 @@ class LLaMAModel(MegatronModule):
                 pass
                 
         lm_output = lm_output.transpose(0, 1)
-        logits = self.lm_head(lm_output)
+        logits, _ = self.lm_head(lm_output)
 
         if labels is None:
             return logits
@@ -141,17 +142,36 @@ class LLaMAModel(MegatronModule):
             from megatron.profiler import hops_profiler
             hops_profiler.start("Loss_Softmax_Forward")
             
-            # [invalid] Shift so that tokens < n predict n
-            # Do not need to shift here
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., :-1].contiguous()
-            # Flatten the tokens
-            loss_fct = torch.nn.CrossEntropyLoss(ignore_index=0)
-            shift_logits = shift_logits.view(-1, self.padded_vocab_size)
-            shift_labels = shift_labels.view(-1)
-            # Enable model parallelism
-            shift_labels = shift_labels.to(shift_logits.device)
-            loss = loss_fct(shift_logits, shift_labels)
+            # [b s v] => [s b v] for vocab_parallel_cross_entropy if needed
+            # or keep [b s v] for standard loss
+            if self.parallel_output:
+                # [b s v] => [s b v]
+                logits = logits.transpose(0, 1).contiguous()
+                # [b s] => [s b]
+                labels = labels.transpose(0, 1).contiguous()
+                
+                # Shift
+                shift_logits = logits[:-1, :, :].contiguous()
+                shift_labels = labels[1:, :].contiguous()
+                
+                if self.fp16_lm_cross_entropy:
+                    loss = tensor_parallel.vocab_parallel_cross_entropy(shift_logits, shift_labels)
+                else:
+                    loss = tensor_parallel.vocab_parallel_cross_entropy(shift_logits.float(), shift_labels)
+                # [s b] => [b s]
+                loss = loss.transpose(0, 1).contiguous()
+            else:
+                # [invalid] Shift so that tokens < n predict n
+                # Do not need to shift here
+                shift_logits = logits[:, :-1, :].contiguous()
+                shift_labels = labels[:, :-1].contiguous()
+                # Flatten the tokens
+                loss_fct = torch.nn.CrossEntropyLoss(ignore_index=0)
+                shift_logits = shift_logits.view(-1, self.padded_vocab_size)
+                shift_labels = shift_labels.view(-1)
+                # Enable model parallelism
+                shift_labels = shift_labels.to(shift_logits.device)
+                loss = loss_fct(shift_logits, shift_labels)
             
             hops_profiler.stop("Loss_Softmax_Forward")
 
