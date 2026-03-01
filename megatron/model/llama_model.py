@@ -72,9 +72,6 @@ class LLaMAModel(MegatronModule):
             pre_process=self.pre_process,
             post_process=self.post_process)
         
-        if not args.untie_embeddings_and_output_weights:
-            self.initialize_word_embeddings(init_method_normal)
-        
         self.causal_lm = args.causal_lm
         if self.causal_lm and self.post_process:
             self.lm_head = torch.nn.Linear(args.hidden_size, args.padded_vocab_size, bias=False)
@@ -100,6 +97,9 @@ class LLaMAModel(MegatronModule):
             self.lm_head.register_forward_hook(_fwd_post)
             self.lm_head.register_full_backward_pre_hook(_bwd_pre)
             self.lm_head.register_full_backward_hook(_bwd_post)
+
+        if not args.untie_embeddings_and_output_weights:
+            self.initialize_word_embeddings(init_method_normal)
 
     def set_input_tensor(self, input_tensor):
         """See megatron.model.transformer.set_input_tensor()"""

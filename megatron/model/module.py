@@ -47,7 +47,7 @@ class MegatronModule(torch.nn.Module):
             if not self.share_word_embeddings:
                 raise Exception('word_embeddings_weight() called for last '
                                 'stage, but share_word_embeddings is false')
-            return self.word_embeddings.weight
+            raise AttributeError('LLaMAModel object has no attribute "word_embeddings" or "lm_head" to provide weight.')
 
 
     def initialize_word_embeddings(self, init_method_normal):
