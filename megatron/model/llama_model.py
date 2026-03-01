@@ -76,7 +76,7 @@ class LLaMAModel(MegatronModule):
             self.initialize_word_embeddings(init_method_normal)
         
         self.causal_lm = args.causal_lm
-        if self.causal_lm:
+        if self.causal_lm and self.post_process:
             self.lm_head = torch.nn.Linear(args.hidden_size, args.padded_vocab_size, bias=False)
             
             # Register hooks to profile Logits compute
@@ -181,11 +181,11 @@ class LLaMAModel(MegatronModule):
             = self.language_model.state_dict_for_save_checkpoint(
                 prefix=prefix, keep_vars=keep_vars)
         # Save word_embeddings.
-        if self.post_process and not self.pre_process and not self.untie_embeddings_and_output_weights:
+        if self.post_process and not self.pre_process and not self.untie_embeddings_and_output_weights and hasattr(self, 'word_embeddings'):
             state_dict_[self._word_embeddings_for_head_key] \
                 = self.word_embeddings.state_dict(prefix=prefix,
                                                   keep_vars=keep_vars)
-        if self.post_process and self.causal_lm:
+        if self.post_process and self.causal_lm and hasattr(self, 'lm_head'):
             state_dict_['lm_head'] = self.lm_head.state_dict()
 
         return state_dict_
@@ -193,11 +193,11 @@ class LLaMAModel(MegatronModule):
     def load_state_dict(self, state_dict, strict=True):
         """Customized load."""
 
-        if self.causal_lm:
+        if self.causal_lm and hasattr(self, 'lm_head'):
             self.lm_head.load_state_dict(state_dict['lm_head'], strict=strict)
 
         # Load word_embeddings.
-        if self.post_process and not self.pre_process and not self.untie_embeddings_and_output_weights:
+        if self.post_process and not self.pre_process and not self.untie_embeddings_and_output_weights and hasattr(self, 'word_embeddings'):
             self.word_embeddings.load_state_dict(
                 state_dict[self._word_embeddings_for_head_key], strict=strict)
         if self._language_model_key in state_dict:
