@@ -158,8 +158,10 @@ class LLaMAModel(MegatronModule):
                     loss = tensor_parallel.vocab_parallel_cross_entropy(shift_logits, shift_labels)
                 else:
                     loss = tensor_parallel.vocab_parallel_cross_entropy(shift_logits.float(), shift_labels)
-                # [s b] => [b s]
-                loss = loss.transpose(0, 1).contiguous()
+                
+                # vocab_parallel_cross_entropy returns loss per token [s, b]
+                # we need to average it to a scalar for the trainer
+                loss = loss.mean()
             else:
                 # [invalid] Shift so that tokens < n predict n
                 # Do not need to shift here
