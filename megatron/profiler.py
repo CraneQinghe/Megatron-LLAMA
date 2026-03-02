@@ -373,6 +373,8 @@ class HopsProfiler:
         # 尝试动态获取全局配置并加上 Rank 专属标志避免覆写
         topo_suffix = ""
         rank_suffix = ""
+        model_name = "llama" # default
+        model_size = ""
         rank = 0
         try:
             from megatron import get_args
@@ -391,14 +393,36 @@ class HopsProfiler:
             
             if dist.is_initialized():
                 rank_suffix = f"_rank{rank}"
+
+            # Extract model name and size
+            import re
+            tokenizer_path = getattr(args, 'tokenizer_name_or_path', '').lower()
+            if 'qwen' in tokenizer_path:
+                model_name = "qwen"
+            elif 'llama' in tokenizer_path:
+                model_name = "llama"
+            
+            # Try to extract size (e.g., 7B) from path first
+            m = re.search(r'(\d+)b', tokenizer_path)
+            if m:
+                model_size = f"_{m.group(1)}B"
+            else:
+                # Try to get model size from total parameters
+                params_stat = self.stats.get("Model_Grad_Params_Total")
+                if params_stat and "total_ms" in params_stat:
+                    total_params = params_stat["total_ms"]
+                    billions = round(total_params / 1e9)
+                    if billions > 0:
+                        model_size = f"_{billions}B"
         except Exception:
             try:
                 if dist.is_initialized():
                     rank = dist.get_rank()
+                    rank_suffix = f"_rank{rank}"
             except:
                 pass
             
-        file_name = f"/data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/examples/LLaMA/hops_profiling_results{topo_suffix}{rank_suffix}.json"
+        file_name = f"/data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/examples/LLaMA/hops_profiling_results_{model_name}{model_size}{topo_suffix}{rank_suffix}.json"
         # We purposely dump for ALL ranks to capture rank-specific memory imbalances
         # like PP staging allocations and logits distribution.
         if True:
@@ -411,7 +435,7 @@ class HopsProfiler:
                 print(f"\n[HopsProfiler] Successfully exported profiling stats to {file_name}", flush=True)
             except Exception as e:
                 # Fallback to current directory
-                fallback_name = f"hops_profiling_results{topo_suffix}{rank_suffix}.json"
+                fallback_name = f"hops_profiling_results_{model_name}{model_size}{topo_suffix}{rank_suffix}.json"
                 try:
                     with open(os.path.join(os.getcwd(), fallback_name), "w") as f2:
                         json.dump(res, f2, indent=4)

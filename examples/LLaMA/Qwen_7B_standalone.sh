@@ -6,12 +6,12 @@ DATASET="/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/dataset/datas
 # 设置分布式训练参数
 MASTER_ADDR=172.20.$1.2
 NODE_RANK=$2
-NNODES=2
-TP_SIZE=8
+NNODES=1
+TP_SIZE=2
 
 PP_SIZE=1
 SEQ_LENGTH=4096
-WORLD_SIZE=16
+WORLD_SIZE=2
 DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
 
 DTIME=`date +%m-%d`
@@ -31,7 +31,7 @@ echo "GLOBAL_BATCH_SIZE is: $GLOBAL_BATCH_SIZE"
 
 JOB_NAME="Qwen_7B_tp${TP_SIZE}_pp${PP_SIZE}_mbs${MICRO_BATCH_SIZE}_gpus${WORLD_SIZE}"
 
-TOKENIZER_PATH="/data/haiqwa/zevin_nfs/model/DeepSeek-R1-Distill-Qwen-7B" # 请确保路径存在或指向正确的 Qwen Tokenizer
+TOKENIZER_PATH="/data/haiqwa/zevin_nfs/code/verl/examples/resources/DeepSeek-R1-Distill-Qwen-7B" # 请确保路径存在或指向正确的 Qwen Tokenizer
 TRAIN_ITERS=10
 EVAL_ITERS=0
 LOG_INTERVAL=1
@@ -73,6 +73,7 @@ options=" \
     --micro-batch-size ${MICRO_BATCH_SIZE} \
         --global-batch-size ${GLOBAL_BATCH_SIZE} \
     --train-iters ${TRAIN_ITERS} \
+    --log-interval ${LOG_INTERVAL} \
     --lr 6.0e-5 \
         --lr-decay-style cosine \
     --adam-beta1 0.9 \
@@ -86,4 +87,4 @@ options=" \
     --use-flash-attn"
 
 # 执行训练命令
-torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=8 --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
+torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=2 --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
