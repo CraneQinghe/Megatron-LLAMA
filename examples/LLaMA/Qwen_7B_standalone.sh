@@ -74,6 +74,7 @@ options=" \
         --global-batch-size ${GLOBAL_BATCH_SIZE} \
     --train-iters ${TRAIN_ITERS} \
     --log-interval ${LOG_INTERVAL} \
+    --eval-iters 0 \
     --lr 6.0e-5 \
         --lr-decay-style cosine \
     --adam-beta1 0.9 \

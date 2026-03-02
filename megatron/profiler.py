@@ -44,10 +44,18 @@ class HopsProfiler:
         total_params = 0
         param_bytes = 2 # default fp16/bf16 fallback
 
+        seen_params = set()
         for m in model:
             for name, p in m.named_parameters():
                 if not p.requires_grad:
                     continue
+                
+                # Avoid double counting shared parameters (e.g. shared lm_head and output_layer)
+                p_id = id(p)
+                if p_id in seen_params:
+                    continue
+                seen_params.add(p_id)
+                
                 num_params = p.numel()
                 total_params += num_params
                 param_bytes = p.element_size() # Extract real byte size of the parameter
@@ -55,7 +63,7 @@ class HopsProfiler:
                 # Check naming convention inside Megatron for word embeddings and the output layer
                 if 'word_embeddings' in name or 'position_embeddings' in name:
                     vocab_emb_params += num_params
-                elif 'lm_head' in name:
+                elif 'lm_head' in name or 'output_layer' in name:
                     vocab_head_params += num_params
                 elif 'layers.' in name:
                     layer_params += num_params

@@ -75,14 +75,18 @@ class LLaMAModel(MegatronModule):
         from megatron.core import tensor_parallel
         self.causal_lm = args.causal_lm
         if self.causal_lm and self.post_process:
-            self.lm_head = tensor_parallel.ColumnParallelLinear(
-                args.hidden_size,
-                args.padded_vocab_size,
-                bias=False,
-                gather_output=not self.parallel_output,
-                init_method=init_method_normal(args.init_method_std),
-                use_cpu_initialization=args.use_cpu_initialization,
-                perform_initialization=args.perform_initialization)
+            # Re-use output_layer from language_model if it exists to avoid redundancy (e.g. for Qwen)
+            if self.untie_embeddings_and_output_weights and hasattr(self.language_model, 'output_layer'):
+                self.lm_head = self.language_model.output_layer
+            else:
+                self.lm_head = tensor_parallel.ColumnParallelLinear(
+                    args.hidden_size,
+                    args.padded_vocab_size,
+                    bias=False,
+                    gather_output=not self.parallel_output,
+                    init_method=init_method_normal(args.init_method_std),
+                    use_cpu_initialization=args.use_cpu_initialization,
+                    perform_initialization=args.perform_initialization)
             
             # Register hooks to profile Logits compute
             def _fwd_pre(module, input):
