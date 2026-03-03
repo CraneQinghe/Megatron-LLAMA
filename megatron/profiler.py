@@ -217,7 +217,7 @@ class HopsProfiler:
             else:
                 final_name = "Iteration_Profiled"
 
-        if self.detailed_profiling_enabled or real_name == "Iteration":
+        if (self.detailed_profiling_enabled and not is_bypassed) or real_name == "Iteration":
             # Force serialization and calculate locally to simulate the sync overhead
             torch.cuda.synchronize()
             elapsed = start_evt.elapsed_time(end_evt)
@@ -235,6 +235,8 @@ class HopsProfiler:
             if real_name == "Iteration" or real_name == "Optimizer_Step" or (not is_warmup and not is_bypassed) or is_layer_total:
                 # If it's an unprofiled iteration, the final tag name should be used
                 tag_name = final_name if real_name == "Iteration" else real_name
+                if is_bypassed and is_layer_total:
+                    tag_name = tag_name + "_unprofiled"
                 self.async_events_to_measure.append((tag_name, start_evt, end_evt, mem_diff))
                 
                 # IMPORTANT FIX: Periodically flush CUDA events to prevent Event Pool Exhaustion!
