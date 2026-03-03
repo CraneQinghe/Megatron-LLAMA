@@ -232,8 +232,10 @@ class HopsProfiler:
                 self.stats[final_name]["all_mem_mb"].append(mem_diff)
         else:
             # Fully Non-blocking: just record events to not affect system dynamics
-            if real_name == "Optimizer_Step" or (not is_warmup and not is_bypassed) or is_layer_total:
-                self.async_events_to_measure.append((real_name, start_evt, end_evt, mem_diff))
+            if real_name == "Iteration" or real_name == "Optimizer_Step" or (not is_warmup and not is_bypassed) or is_layer_total:
+                # If it's an unprofiled iteration, the final tag name should be used
+                tag_name = final_name if real_name == "Iteration" else real_name
+                self.async_events_to_measure.append((tag_name, start_evt, end_evt, mem_diff))
                 
                 # IMPORTANT FIX: Periodically flush CUDA events to prevent Event Pool Exhaustion!
                 # Holding tens of thousands of torch.cuda.Event objects will hit hardware limits 
