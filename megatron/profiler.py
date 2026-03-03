@@ -23,6 +23,8 @@ class HopsProfiler:
         self.async_events_to_measure = []
         self.heartbeat_layer_name = None
         self.base_memory_mb = 0.0
+        
+        # Ensure all ranks reliably dump stats upon process termination
         atexit.register(self.dump)
 
     def record_base_memory(self):
@@ -166,7 +168,7 @@ class HopsProfiler:
         if not self.detailed_profiling_enabled and not is_layer_total and name != "Iteration":
             return
 
-        if getattr(self, 'iters_recorded', 0) >= 6 and name != "Iteration":
+        if getattr(self, 'iters_recorded', 0) >= 6 and name != "Iteration" and not is_layer_total:
             return
             
         real_name = name
@@ -230,7 +232,7 @@ class HopsProfiler:
                 self.stats[final_name]["all_mem_mb"].append(mem_diff)
         else:
             # Fully Non-blocking: just record events to not affect system dynamics
-            if real_name == "Optimizer_Step" or (not is_warmup and not is_bypassed):
+            if real_name == "Optimizer_Step" or (not is_warmup and not is_bypassed) or is_layer_total:
                 self.async_events_to_measure.append((real_name, start_evt, end_evt, mem_diff))
                 
                 # IMPORTANT FIX: Periodically flush CUDA events to prevent Event Pool Exhaustion!
@@ -256,6 +258,10 @@ class HopsProfiler:
             return
         self._has_dumped = True
         print(f"[Debug HopsProfiler] dump() called!", flush=True)
+
+        # Force closure of pending global Iterations (especially for Unprofiled stages)
+        if "Iteration" in self.events:
+            self.stop("Iteration")
 
         if self.async_events_to_measure:
             torch.cuda.synchronize()
