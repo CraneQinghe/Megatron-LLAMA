@@ -162,13 +162,19 @@ class HopsProfiler:
             
             if name == self.heartbeat_layer_name:
                 self.layer_fwds_started += 1
-                if self.layer_fwds_started > 120: # 10 warmup + 20 iters * 4 microbatches
+                # Disable cross-sync detailed profiling after the profiled steps (iters 2-5)
+                if self.iters_recorded >= 6:
                     self.detailed_profiling_enabled = False
 
-        if not self.detailed_profiling_enabled and not is_layer_total and name != "Iteration":
-            return
+        # Pure Mode: after iter 10, strictly only allow the outer Iteration tracker
+        if self.iters_recorded >= 10:
+            if name != "Iteration": return
+            
+        # Unprofiled Mode: after iter 6, only allow Iteration and Layer Totals (async)
+        elif self.iters_recorded >= 6:
+            if name != "Iteration" and not is_layer_total: return
 
-        if getattr(self, 'iters_recorded', 0) >= 6 and name != "Iteration" and not is_layer_total:
+        if not self.detailed_profiling_enabled and not is_layer_total and name != "Iteration":
             return
             
         real_name = name
@@ -210,14 +216,20 @@ class HopsProfiler:
         
         final_name = real_name
         if real_name == "Iteration":
-            if is_bypassed:
+            if self.iters_recorded >= 10:
+                final_name = "Iteration_Pure"
+            elif is_bypassed:
                 final_name = "Iteration_Unprofiled"
             elif is_warmup:
                 final_name = "Iteration_Warmup"
             else:
                 final_name = "Iteration_Profiled"
 
-        if (self.detailed_profiling_enabled and not is_bypassed) or real_name == "Iteration":
+        # Only synchronize for detailed stages or the profiled Iteration markers.
+        # IF it is an unprofiled/pure iteration, we should NOT synchronize here to get pure perf.
+        sync_required = (self.detailed_profiling_enabled and not is_bypassed) or (real_name == "Iteration" and not is_bypassed and not is_warmup)
+
+        if sync_required:
             # Force serialization and calculate locally to simulate the sync overhead
             torch.cuda.synchronize()
             elapsed = start_evt.elapsed_time(end_evt)
