@@ -14,6 +14,7 @@ from megatron.core.enums import ModelType
 from megatron.data.gpt_dataset import build_train_valid_test_datasets
 from megatron.model import LLaMAModel
 from megatron.training import pretrain
+from megatron.profiler import hops_profiler
 from megatron.utils import get_ltor_masks_and_position_ids
 from megatron.utils import average_losses_across_data_parallel_group
 import time
@@ -77,13 +78,17 @@ def forward_step(data_iterator, model):
     timers = get_timers()
 
     # Get the batch.
+    hops_profiler.start("Batch_Generator_Total")
     timers('batch-generator', log_level=2).start()
     tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
         data_iterator)
     timers('batch-generator').stop()
+    hops_profiler.stop("Batch_Generator_Total")
 
+    hops_profiler.start("Model_Forward_Only")
     output_tensor = model(tokens, position_ids, attention_mask,
                           labels=labels)
+    hops_profiler.stop("Model_Forward_Only")
 
     return output_tensor, partial(loss_func, loss_mask)
 

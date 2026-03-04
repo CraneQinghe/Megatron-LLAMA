@@ -7,10 +7,12 @@ import torch
 from torch.autograd.variable import Variable
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
+from megatron import get_args
 from megatron.core import parallel_state
 from megatron.core.pipeline_parallel import p2p_communication
 from megatron.core.enums import ModelType
 from megatron.core.utils import get_attr_wrapped_model, get_model_type
+from megatron.profiler import hops_profiler
 
 # Types
 Shape = Union[List[int], torch.Size]
@@ -357,29 +359,41 @@ def forward_backward_no_pipelining(*,
     input_tensor, output_tensor_grad = None, None
     with no_sync_func():
         for i in range(num_microbatches - 1):
+            hops_profiler.start("Forward_Pass_Total")
             output_tensor = forward_step(forward_step_func, data_iterator,
                                          model, num_microbatches, input_tensor, forward_data_store,
                                          timers, collect_non_loss_data, dtype, enable_autocast)
+            hops_profiler.stop("Forward_Pass_Total")
             
             if not forward_only:
+                hops_profiler.start("Backward_Pass_Total")
                 backward_step(grad_scaler, input_tensor, output_tensor,
                               output_tensor_grad, model_type, timers, deallocate_pipeline_outputs)
+                hops_profiler.stop("Backward_Pass_Total")
                 
                 if optimizer is not None:
+                    hops_profiler.start("Backward_Epilogue_Total")
                     optimizer.backward_epilogue()
+                    hops_profiler.stop("Backward_Epilogue_Total")
 
     # Run computation for last microbatch out of context handler (want to
     # synchronize gradients).
+    hops_profiler.start("Forward_Pass_Total")
     output_tensor = forward_step(forward_step_func, data_iterator,
                                  model, num_microbatches, input_tensor, forward_data_store,
                                  timers, collect_non_loss_data, dtype, enable_autocast)
+    hops_profiler.stop("Forward_Pass_Total")
 
     if not forward_only:
+        hops_profiler.start("Backward_Pass_Total")
         backward_step(grad_scaler, input_tensor, output_tensor,
                       output_tensor_grad, model_type, timers, deallocate_pipeline_outputs)
+        hops_profiler.stop("Backward_Pass_Total")
         
         if optimizer is not None:
+            hops_profiler.start("Backward_Epilogue_Total")
             optimizer.backward_epilogue()
+            hops_profiler.stop("Backward_Epilogue_Total")
 
     return forward_data_store
 
@@ -968,9 +982,11 @@ def forward_backward_pipelining_without_interleaving(*,
     # Run warmup forward passes.
     for i in range(num_warmup_microbatches):
         input_tensor = recv_forward(recv_tensor_shapes, dtype, timers=timers)
+        hops_profiler.start("Forward_Pass_Total")
         output_tensor = forward_step(forward_step_func, data_iterator, model, num_microbatches,
                                      input_tensor, forward_data_store,
                                      timers, collect_non_loss_data, dtype, enable_autocast)
+        hops_profiler.stop("Forward_Pass_Total")
         send_forward(output_tensor, send_tensor_shapes, timers=timers)
 
         if not forward_only:
@@ -1044,9 +1060,11 @@ def forward_backward_pipelining_without_interleaving(*,
 
             output_tensor_grad = recv_backward(send_tensor_shapes, dtype, timers=timers)
 
+            hops_profiler.start("Backward_Pass_Total")
             input_tensor_grad = \
                 backward_step(grad_scaler, input_tensor, output_tensor,
                               output_tensor_grad, model_type, timers, deallocate_pipeline_outputs)
+            hops_profiler.stop("Backward_Pass_Total")
 
             send_backward(input_tensor_grad, recv_tensor_shapes, timers=timers)
 
