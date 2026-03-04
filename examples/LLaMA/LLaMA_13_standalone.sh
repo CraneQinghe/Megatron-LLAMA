@@ -48,6 +48,8 @@ LOG_INTERVAL=1
 export NCCL_SOCKET_IFNAME="eth0"
 export GLOO_SOCKET_IFNAME="eth0"
 export NCCL_ALGO=Ring
+export TORCH_EXTENSIONS_DIR=/tmp/torch_extensions
+
 # 设置 --tensorboard-queue-size 为 1 会显著减慢训练速度
 options=" \
     --finetune \

@@ -38,6 +38,7 @@ LOG_INTERVAL=1
 
 export NCCL_SOCKET_IFNAME="eth0"
 export GLOO_SOCKET_IFNAME="eth0"
+export TORCH_EXTENSIONS_DIR=/tmp/torch_extensions
 
 # Qwen-7B Config based on DeepSeek Distill
 # hidden_size: 3584

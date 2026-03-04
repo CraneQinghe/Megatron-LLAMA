@@ -38,6 +38,7 @@ for tp in 1 2 4 8; do
                 
                 # 调用原始脚本
                 bash LLaMA_13_standalone.sh
+                # bash Qwen_7B_standalone.sh
                 
                 echo "Config DP=$dp, TP=$tp, PP=$pp finished."
                 echo "Waiting 5 seconds before next config..."
