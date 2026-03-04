@@ -4,14 +4,14 @@
 DATASET="/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/dataset/dataset_text_document"
 
 # 设置分布式训练参数
-MASTER_ADDR=172.20.$1.2
-NODE_RANK=$2
-NNODES=2
-TP_SIZE=8
+MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
+NODE_RANK=${NODE_RANK:-0}
+NNODES=${NNODES:-1}
+TP_SIZE=${TP_SIZE:-8}
+PP_SIZE=${PP_SIZE:-1}
 
-PP_SIZE=1
 SEQ_LENGTH=4096
-WORLD_SIZE=16
+WORLD_SIZE=$((NNODES * 8))
 DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
 # DP_SIZE=$3
 
