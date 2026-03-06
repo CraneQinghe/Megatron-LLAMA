@@ -4,14 +4,14 @@
 DATASET="/data/haiqwa/zevin_nfs/code/Megatron-LLaMA/examples/LLaMA/dataset/dataset_text_document"
 
 # 设置分布式训练参数
-MASTER_ADDR=172.20.$1.2
-NODE_RANK=$2
-NNODES=1
-TP_SIZE=2
+MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
+NODE_RANK=${NODE_RANK:-0}
+NNODES=${NNODES:-1}
+TP_SIZE=${TP_SIZE:-8}
+PP_SIZE=${PP_SIZE:-1}
 
-PP_SIZE=1
 SEQ_LENGTH=4096
-WORLD_SIZE=2
+WORLD_SIZE=${WORLD_SIZE:-8}
 DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
 
 DTIME=`date +%m-%d`
@@ -52,7 +52,7 @@ options=" \
     --sequence-parallel \
         --tensor-model-parallel-size ${TP_SIZE} \
         --pipeline-model-parallel-size ${PP_SIZE} \
-    --num-layers 4 \
+    --num-layers 32 \
         --hidden-size 3584 \
         --ffn-hidden-size 18944 \
         --num-attention-heads 28 \
@@ -89,4 +89,14 @@ options=" \
     --use-flash-attn"
 
 # 执行训练命令
-torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=2 --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
+echo "ACTUAL RUN CONFIG: TP=${TP_SIZE}, PP=${PP_SIZE}, DP=${DP_SIZE}, WORLD=${WORLD_SIZE}"
+
+# 2. 使用 if-else 进行数值比较
+if [ "${WORLD_SIZE}" -lt 8 ]; then
+    # 如果总卡数小于 8（比如你在做单卡或 4 卡小规模调试）
+    NPROC=$WORLD_SIZE
+else
+    # 如果总卡数大于等于 8（比如在大规模集群 512 卡测试时）
+    NPROC=8
+fi
+torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=$NPROC --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}

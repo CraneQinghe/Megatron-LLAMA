@@ -7,13 +7,14 @@ import atexit
 class HopsProfiler:
     _instance = None
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super(HopsProfiler, cls).__new__(cls)
-            cls._instance.init()
+            cls._instance.init(*args, **kwargs)
         return cls._instance
 
-    def init(self):
+    def init(self, save_all_ranks=False):
+        self.save_all_ranks = save_all_ranks
         self.events = {}
         self.stats = {}
         self.enabled = True
@@ -453,9 +454,15 @@ class HopsProfiler:
                 pass
             
         file_name = f"/data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/examples/LLaMA/hops_profiling_results_{model_name}{model_size}{topo_suffix}{rank_suffix}.json"
-        # We purposely dump for ALL ranks to capture rank-specific memory imbalances
-        # like PP staging allocations and logits distribution.
-        if True:
+        
+        can_save = True
+        try:
+            if not self.save_all_ranks and dist.is_initialized() and dist.get_rank() != 0:
+                can_save = False
+        except Exception:
+            pass
+
+        if can_save:
             try:
                 os.makedirs(os.path.dirname(file_name), exist_ok=True)
             except: pass

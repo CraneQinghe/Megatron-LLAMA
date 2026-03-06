@@ -11,7 +11,7 @@ TP_SIZE=${TP_SIZE:-8}
 PP_SIZE=${PP_SIZE:-1}
 
 SEQ_LENGTH=4096
-WORLD_SIZE=$((NNODES * 8))
+WORLD_SIZE=${WORLD_SIZE:-8}
 DP_SIZE=$(($WORLD_SIZE / $TP_SIZE / $PP_SIZE))
 # DP_SIZE=$3
 
@@ -69,6 +69,7 @@ options=" \
         --RMSNorm \
         --layernorm-epsilon 1e-6 \
         --causal-lm \
+        --untie-embeddings-and-output-weights \
     --tokenizer-type PretrainedFromHF \
         --tokenizer-name-or-path $TOKENIZER_PATH \
         --make-vocab-size-divisible-by 1 \
@@ -77,6 +78,7 @@ options=" \
     --micro-batch-size ${MICRO_BATCH_SIZE} \
         --global-batch-size ${GLOBAL_BATCH_SIZE} \
     --train-iters ${TRAIN_ITERS} \
+    --log-interval ${LOG_INTERVAL} \
     --lr 6.0e-5 \
         --lr-decay-iters 10 \
         --lr-warmup-iters 5 \
@@ -108,4 +110,12 @@ options=" \
     --use-flash-attn"
 
 # 执行训练命令
-torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=8 --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
+echo "ACTUAL RUN CONFIG: TP=${TP_SIZE}, PP=${PP_SIZE}, DP=${DP_SIZE}, WORLD=${WORLD_SIZE}"
+
+if [ "${WORLD_SIZE}" -lt 8 ]; then
+    NPROC=$WORLD_SIZE
+else
+    NPROC=8
+fi
+
+torchrun --master_addr=$MASTER_ADDR --node_rank=$NODE_RANK --nnodes=${NNODES} --nproc_per_node=$NPROC --master_port=29600 /data/haiqwa/zevin_nfs/code/qinghe/Megatron-LLAMA/pretrain_llama.py ${options}
